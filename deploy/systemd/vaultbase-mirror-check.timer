@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Vaultbase mirror verification
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=vaultbase-mirror-check.service
+
+[Install]
+WantedBy=timers.target

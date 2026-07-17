@@ -1,0 +1,18 @@
+[Unit]
+Description=Mirror Vaultbase metadata to recovery PostgreSQL
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=vaultbase
+Group=vaultbase
+WorkingDirectory=/opt/vaultbase
+EnvironmentFile=/etc/vaultbase/api.env
+ExecStart=/usr/bin/npm run db:mirror
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vaultbase /var/log/vaultbase
+UMask=0077

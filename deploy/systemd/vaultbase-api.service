@@ -1,0 +1,23 @@
+[Unit]
+Description=Vaultbase control-plane API
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vaultbase
+Group=vaultbase
+WorkingDirectory=/opt/vaultbase
+EnvironmentFile=/etc/vaultbase/api.env
+ExecStart=/usr/bin/node --import tsx /opt/vaultbase/server/index.ts
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/vaultbase /var/log/vaultbase
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

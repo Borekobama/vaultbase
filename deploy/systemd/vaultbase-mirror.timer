@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Vaultbase metadata mirror
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=20m
+Persistent=true
+Unit=vaultbase-mirror.service
+
+[Install]
+WantedBy=timers.target

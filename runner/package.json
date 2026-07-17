@@ -1,0 +1,11 @@
+{
+  "name": "vaultbase-runner-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:r2": "node r2-prepare.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.910.0"
+  }
+}

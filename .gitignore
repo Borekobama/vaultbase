@@ -1,6 +1,17 @@
 node_modules/
 dist/
+server-dist/
+*.tsbuildinfo
 .DS_Store
 .env
 .env.*
 !.env.example
+runner/r2.env
+runner/*.secret
+.vaultbase-secrets/
+server/.env
+server/*.local
+secrets/*
+!secrets/.gitkeep
+runtime/*
+!runtime/.gitkeep

@@ -1,0 +1,132 @@
+name: vaultbase
+
+services:
+  postgres:
+    image: postgres:17.10-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vaultbase
+      POSTGRES_USER: vaultbase
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vaultbase -d vaultbase"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - internal
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP_BUILD_ID: ${APP_BUILD_ID:-dev}
+      labels:
+        com.project: ${PROJECT_LABEL:-vaultbase}
+    command: ["node", "server-dist/scheduler.js"]
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      SKIP_MIGRATIONS: "true"
+      LOCAL_DATABASE_URL: postgresql://vaultbase:${POSTGRES_PASSWORD}@postgres:5432/vaultbase
+      MIRROR_DATABASE_URL: ${MIRROR_DATABASE_URL:?Set MIRROR_DATABASE_URL in .env}
+      MIRROR_ENABLED: "true"
+      VAULTBASE_MASTER_KEY: ${VAULTBASE_MASTER_KEY:?Set VAULTBASE_MASTER_KEY in .env}
+      SECRETS_DIRECTORY: /var/lib/vaultbase/secrets
+      STORAGE_CACHE_DIRECTORY: /var/lib/vaultbase/storage-cache
+      R2_ENV_FILE: /run/secrets/r2.env
+      RESTIC_PASSWORD_FILE: /run/secrets/restic-password
+      RESTIC_CACHE_DIR: /var/cache/vaultbase/restic
+      PG_BIN_DIRECTORY: /usr/lib/postgresql/17/bin
+      TZ: ${TZ:-Europe/Zurich}
+    volumes:
+      - ../runtime/secrets:/var/lib/vaultbase/secrets
+      - ../runtime/storage-cache:/var/lib/vaultbase/storage-cache
+      - ../runtime/restic-cache:/var/cache/vaultbase/restic
+      - ../secrets/r2.env:/run/secrets/r2.env:ro
+      - ../secrets/restic-password:/run/secrets/restic-password:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=2g,mode=1777
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      com.project: ${PROJECT_LABEL:-vaultbase}
+    networks:
+      - internal
+      - egress
+
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        APP_BUILD_ID: ${APP_BUILD_ID:-dev}
+      labels:
+        com.project: ${PROJECT_LABEL:-vaultbase}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      SERVE_STATIC: "true"
+      API_PORT: 8787
+      API_HOST: 0.0.0.0
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN in .env}
+      LOCAL_DATABASE_URL: postgresql://vaultbase:${POSTGRES_PASSWORD}@postgres:5432/vaultbase
+      MIRROR_DATABASE_URL: ${MIRROR_DATABASE_URL:?Set MIRROR_DATABASE_URL in .env}
+      MIRROR_ENABLED: "true"
+      VAULTBASE_API_TOKEN: ${VAULTBASE_API_TOKEN:?Set VAULTBASE_API_TOKEN in .env}
+      VAULTBASE_MASTER_KEY: ${VAULTBASE_MASTER_KEY:?Set VAULTBASE_MASTER_KEY in .env}
+      SECRETS_DIRECTORY: /var/lib/vaultbase/secrets
+      STORAGE_CACHE_DIRECTORY: /var/lib/vaultbase/storage-cache
+      R2_ENV_FILE: /run/secrets/r2.env
+      RESTIC_PASSWORD_FILE: /run/secrets/restic-password
+      RESTIC_CACHE_DIR: /var/cache/vaultbase/restic
+      PG_BIN_DIRECTORY: /usr/lib/postgresql/17/bin
+    ports:
+      - "127.0.0.1:${VAULTBASE_PORT:-12013}:8787"
+    volumes:
+      - ../runtime/secrets:/var/lib/vaultbase/secrets
+      - ../runtime/storage-cache:/var/lib/vaultbase/storage-cache
+      - ../runtime/restic-cache:/var/cache/vaultbase/restic
+      - ../secrets/r2.env:/run/secrets/r2.env:ro
+      - ../secrets/restic-password:/run/secrets/restic-password:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=2g,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      com.project: ${PROJECT_LABEL:-vaultbase}
+    networks:
+      - internal
+      - egress
+
+volumes:
+  postgres_data:
+    labels:
+      com.project: vaultbase
+
+networks:
+  internal:
+    internal: true
+  egress: {}

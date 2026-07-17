@@ -1,0 +1,26 @@
+import { describe, expect, it } from 'vitest'
+import { normalizeProjectId, validateProject } from './validation'
+
+const valid = { name: 'Customer Portal', plan: 'free' as const, backupMode: 'database' as const, databaseUrl: 'postgresql://postgres.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
+
+describe('project validation', () => {
+  it('normalizes human names into stable ids', () => {
+    expect(normalizeProjectId('  Café & Sales  ')).toBe('caf-sales')
+    expect(normalizeProjectId('العربية')).toBe('')
+  })
+
+  it('accepts a complete PostgreSQL connection', () => {
+    expect(validateProject(valid, [])).toEqual({})
+  })
+
+  it('rejects duplicate names and incomplete secrets', () => {
+    const errors = validateProject({ ...valid, databaseUrl: 'postgresql://host/postgres' }, ['customer-portal'])
+    expect(errors.name).toMatch(/already exists/i)
+    expect(errors.databaseUrl).toMatch(/username, and password/i)
+  })
+
+  it('rejects invalid protocols', () => {
+    const errors = validateProject({ ...valid, databaseUrl: 'https://example.com' }, [])
+    expect(errors.databaseUrl).toMatch(/PostgreSQL/i)
+  })
+})

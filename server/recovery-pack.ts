@@ -1,0 +1,103 @@
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
+import { config } from './config.js'
+import { localPool } from './db.js'
+import { runProcess } from './process.js'
+import { secretStore } from './secret-store.js'
+import { syncStorageObjects } from './storage-sync.js'
+
+const excludedManagedSchemas = ['auth', 'storage', 'extensions', 'graphql', 'graphql_public', 'supabase_functions', 'realtime', '_analytics', '_realtime']
+
+function postgresEnvironment(rawUrl: string) {
+  const url = new URL(rawUrl)
+  return {
+    ...process.env,
+    PGHOST: url.hostname,
+    PGPORT: url.port || '5432',
+    PGDATABASE: url.pathname.slice(1) || 'postgres',
+    PGUSER: decodeURIComponent(url.username),
+    PGPASSWORD: decodeURIComponent(url.password),
+    PGSSLMODE: url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? 'disable' : 'require',
+  }
+}
+
+async function fileDigest(path: string) {
+  return createHash('sha256').update(await readFile(path)).digest('hex')
+}
+
+async function parseEnvironmentFile(path: string) {
+  const values: NodeJS.ProcessEnv = {}
+  for (const line of (await readFile(path, 'utf8')).split(/\r?\n/)) {
+    const match = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/)
+    if (match) values[match[1]] = match[2].replace(/^['"]|['"]$/g, '')
+  }
+  return values
+}
+
+export async function createRecoveryPack(projectId: string) {
+  const projectResult = await localPool.query('SELECT id, project_ref, backup_mode, secret_ref FROM vaultbase.projects WHERE id=$1 AND enabled=true', [projectId])
+  if (!projectResult.rowCount) throw new Error('Enabled project not found.')
+  const project = projectResult.rows[0]
+  const snapshotId = randomUUID()
+  const startedAt = new Date()
+  const directory = await mkdtemp(join(tmpdir(), `vaultbase-${projectId}-`))
+  const databaseDirectory = join(directory, 'database')
+  const { mkdir } = await import('node:fs/promises')
+  await mkdir(databaseDirectory, { mode: 0o700 })
+  await localPool.query(`INSERT INTO vaultbase.snapshots(id, project_id, status, components, started_at) VALUES ($1,$2,'running',$3,$4)`, [snapshotId, projectId, { database: 'running' }, startedAt])
+
+  try {
+    const databaseUrl = await secretStore.get(project.secret_ref)
+    const env = postgresEnvironment(databaseUrl)
+    const pgDump = join(config.PG_BIN_DIRECTORY, 'pg_dump')
+    const pgDumpAll = join(config.PG_BIN_DIRECTORY, 'pg_dumpall')
+    const exclusions = excludedManagedSchemas.flatMap(schema => ['--exclude-schema', schema])
+
+    await runProcess(pgDumpAll, ['--roles-only', '--no-role-passwords'], { env, stdoutFile: join(databaseDirectory, 'roles.sql') })
+    await runProcess(pgDump, ['--schema-only', '--no-owner', '--no-privileges', ...exclusions], { env, stdoutFile: join(databaseDirectory, 'schema.sql') })
+    await runProcess(pgDump, ['--data-only', '--format=custom', '--no-owner', '--no-privileges', ...exclusions, '--file', join(databaseDirectory, 'data.dump')], { env })
+
+    if (project.backup_mode === 'full_project') {
+      const authDirectory = join(directory, 'auth')
+      const storageDirectory = join(directory, 'storage')
+      const configurationDirectory = join(directory, 'configuration')
+      await Promise.all([mkdir(authDirectory), mkdir(storageDirectory), mkdir(configurationDirectory)])
+      await runProcess(pgDump, ['--data-only', '--format=custom', '--schema=auth', '--no-owner', '--no-privileges', '--file', join(authDirectory, 'users-and-identities.dump')], { env })
+      await runProcess(pgDump, ['--data-only', '--format=custom', '--schema=storage', '--no-owner', '--no-privileges', '--file', join(storageDirectory, 'metadata.dump')], { env })
+      await runProcess(pgDump, ['--schema-only', '--schema=auth', '--schema=storage', '--no-owner', '--no-privileges'], { env, stdoutFile: join(configurationDirectory, 'managed-schema.sql') })
+      await runProcess(pgDump, ['--schema-only', '--schema=extensions', '--no-owner', '--no-privileges'], { env, stdoutFile: join(configurationDirectory, 'extensions.sql') })
+      await syncStorageObjects(projectId, join(storageDirectory, 'objects'))
+    }
+
+    const files: Array<{ path: string; bytes: number; sha256: string }> = []
+    async function collect(path: string, prefix = ''): Promise<void> {
+      for (const entry of await readdir(path, { withFileTypes: true })) {
+        const absolute = join(path, entry.name)
+        const relative = join(prefix, entry.name)
+        if (entry.isDirectory()) await collect(absolute, relative)
+        else files.push({ path: relative, bytes: (await stat(absolute)).size, sha256: await fileDigest(absolute) })
+      }
+    }
+    await collect(directory)
+    const manifest = { version: 1, snapshotId, projectId, projectRef: project.project_ref, mode: project.backup_mode, createdAt: startedAt.toISOString(), files, complete: project.backup_mode === 'database', warnings: project.backup_mode === 'full_project' ? ['Storage object bodies and Management API configuration require additional project credentials.'] : [] }
+    await writeFile(join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
+
+    const r2 = await parseEnvironmentFile(config.R2_ENV_FILE)
+    const restic = await runProcess('restic', ['backup', '--json', '--tag', `project:${projectId}`, '--tag', `mode:${project.backup_mode}`, directory], { env: { ...process.env, ...r2, RESTIC_PASSWORD_FILE: config.RESTIC_PASSWORD_FILE } })
+    const summary = restic.stdout.split(/\r?\n/).map(line => { try { return JSON.parse(line) } catch { return null } }).find(item => item?.message_type === 'summary')
+    const resticSnapshotId = summary?.snapshot_id
+    if (!resticSnapshotId) throw new Error('Restic completed without returning a snapshot identifier.')
+    const dumpBytes = files.reduce((sum, file) => sum + file.bytes, 0)
+    await localPool.query(`UPDATE vaultbase.snapshots SET restic_snapshot_id=$2, status='uploaded', components=$3, dump_bytes=$4, completed_at=now() WHERE id=$1`, [snapshotId, resticSnapshotId, manifest, dumpBytes])
+    await localPool.query(`UPDATE vaultbase.projects SET last_backup_at=now(), measured_dump_bytes=$2, status='healthy', updated_at=now() WHERE id=$1`, [projectId, dumpBytes])
+    await localPool.query(`INSERT INTO vaultbase.activities(id, project_id, snapshot_id, event_type, status, message, bytes, occurred_at) VALUES ($1,$2,$3,'backup','success','Recovery pack uploaded',$4,now())`, [randomUUID(), projectId, snapshotId, dumpBytes])
+    return { snapshotId, resticSnapshotId, dumpBytes, manifest }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown backup error'
+    await localPool.query(`UPDATE vaultbase.snapshots SET status='failed', error_summary=$2, completed_at=now() WHERE id=$1`, [snapshotId, message.slice(0, 500)])
+    await localPool.query(`UPDATE vaultbase.projects SET status='failed', updated_at=now() WHERE id=$1`, [projectId])
+    throw error
+  } finally { await rm(directory, { recursive: true, force: true }) }
+}
