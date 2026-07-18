@@ -45,13 +45,13 @@ The production stack runs the UI/API, scheduler and PostgreSQL in Docker. Only `
 
 ```bash
 ./bin/setup.sh
-# Edit .env and secrets/r2.env, then securely copy in the existing Restic password.
+# Edit the single generated .env file and fill every placeholder.
 ./bin/deploy.sh --clean-build
 ./bin/deploy.sh --status
 ```
 
 Set `NGINX_DOMAIN` and `PUBLIC_ORIGIN=https://your-domain` in `.env`. Create that site and issue its certificate in aaPanel before deployment; `bin/nginx-sync.sh` installs and validates the reverse proxy. A domain is strongly recommended because production session cookies require HTTPS. For a loopback-only health check, a domain is not required.
 
-Persistent data lives in the Docker PostgreSQL volume and the ignored `runtime/` directories. Credentials live only in the ignored `.env` and `secrets/` paths. Keep independent password-manager copies of the R2 credentials, Vaultbase master key and Restic password; losing the Restic password makes the repository unrecoverable.
+Persistent data lives in the Docker PostgreSQL volume and the ignored `runtime/` directories. The ignored, mode-600 `.env` is the deployment source for application, R2 and Restic settings. At deploy time, Vaultbase automatically materializes the R2 and Restic values as protected mounted files so they do not appear in the container environment. Keep independent password-manager copies of the R2 credentials, Vaultbase master key and Restic password; losing the original Restic password makes the existing repository unrecoverable.
 
 See [docs/PRODUCTION-READINESS.md](./docs/PRODUCTION-READINESS.md) for the verified core and optional expansion backlog.

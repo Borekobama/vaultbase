@@ -50,8 +50,9 @@ if [ "${STATUS_ONLY}" -eq 1 ]; then compose ps; docker system df || true; exit 0
 
 mkdir -p runtime/secrets runtime/storage-cache runtime/restic-cache secrets
 chmod 700 runtime/secrets runtime/storage-cache runtime/restic-cache secrets
+"${SCRIPT_DIR}/materialize-secrets.sh"
 for secret in secrets/r2.env secrets/restic-password; do
-  [ -s "${secret}" ] || { echo "Missing ${secret}; run bin/setup.sh first." >&2; exit 1; }
+  [ -s "${secret}" ] || { echo "Could not prepare ${secret} from .env." >&2; exit 1; }
   chmod 600 "${secret}"
 done
 [ -s .env ] || { echo "Missing .env; run bin/setup.sh first." >&2; exit 1; }

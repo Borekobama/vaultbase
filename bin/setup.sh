@@ -10,20 +10,39 @@ if [ ! -f .env ]; then
   postgres_password="$(openssl rand -hex 32)"
   api_token="$(openssl rand -hex 32)"
   master_key="$(openssl rand -hex 32)"
-  sed -i.bak "s/replace-with-a-long-random-password/${postgres_password}/; s/replace-with-at-least-32-random-characters/${api_token}/; s/replace-with-64-hex-characters/${master_key}/" .env
+  restic_password="$(openssl rand -base64 48 | tr -d '\n')"
+  sed -i.bak "s/replace-with-a-long-random-password/${postgres_password}/; s/replace-with-at-least-32-random-characters/${api_token}/; s/replace-with-64-hex-characters/${master_key}/; s|replace-with-original-restic-password|${restic_password}|" .env
   rm -f .env.bak
   chmod 600 .env
-  echo "Created .env. Set NGINX_DOMAIN and MIRROR_DATABASE_URL before deployment."
+  echo "Created .env. Complete its domain, mirror and R2 values before deployment."
 else
   echo ".env already exists; leaving it unchanged."
 fi
-if [ ! -f secrets/restic-password ]; then
-  openssl rand -base64 48 > secrets/restic-password
-  chmod 600 secrets/restic-password
-  echo "Created a new Restic password. Store a second copy in your password manager before using it."
+
+# Migrate a valid legacy split-secret installation into the root .env.
+if [ -s secrets/r2.env ] && ! grep -q 'replace-with-' secrets/r2.env && [ -s secrets/restic-password ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./secrets/r2.env
+  set +a
+  for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION RESTIC_REPOSITORY; do
+    if ! grep -q "^${name}=" .env; then printf '%s=%s\n' "${name}" "${!name:-}" >> .env; fi
+  done
+  if ! grep -q '^RESTIC_PASSWORD=' .env; then
+    printf 'RESTIC_PASSWORD=%s\n' "$(sed -n '1p' secrets/restic-password)" >> .env
+  fi
 fi
-if [ ! -f secrets/r2.env ]; then
-  cp runner/r2.env.example secrets/r2.env
-  chmod 600 secrets/r2.env
-  echo "Created secrets/r2.env template. Add the R2 access key and secret."
+
+if ! grep -q '^AWS_ACCESS_KEY_ID=' .env; then printf 'AWS_ACCESS_KEY_ID=replace-with-r2-access-key-id\n' >> .env; fi
+if ! grep -q '^AWS_SECRET_ACCESS_KEY=' .env; then printf 'AWS_SECRET_ACCESS_KEY=replace-with-r2-secret-access-key\n' >> .env; fi
+if ! grep -q '^AWS_DEFAULT_REGION=' .env; then printf 'AWS_DEFAULT_REGION=auto\n' >> .env; fi
+if ! grep -q '^RESTIC_REPOSITORY=' .env; then printf 'RESTIC_REPOSITORY=replace-with-restic-repository-url\n' >> .env; fi
+if ! grep -q '^RESTIC_PASSWORD=' .env; then printf 'RESTIC_PASSWORD=replace-with-original-restic-password\n' >> .env; fi
+chmod 600 .env
+
+if "${ROOT}/bin/materialize-secrets.sh"; then
+  echo "Deployment secrets are ready. You can run ./bin/deploy.sh."
+else
+  echo "Setup is incomplete. Fill the backup credential placeholders in .env, then run ./bin/deploy.sh." >&2
+  exit 1
 fi
