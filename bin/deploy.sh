@@ -90,7 +90,19 @@ for attempt in $(seq 1 45); do
   sleep 2
 done
 
-if [ -x "${SCRIPT_DIR}/nginx-sync.sh" ]; then "${SCRIPT_DIR}/nginx-sync.sh" || log "WARNING: aaPanel Nginx sync skipped or failed"; fi
+if [ -x "${SCRIPT_DIR}/nginx-sync.sh" ]; then
+  panel_vhost_dir="${PANEL_VHOST_DIR:-/www/server/panel/vhost/nginx}"
+  if [ "$(id -u)" -ne 0 ] && [ -d "${panel_vhost_dir}" ] && [ ! -w "${panel_vhost_dir}" ]; then
+    if command -v sudo >/dev/null 2>&1; then
+      log "Synchronizing aaPanel Nginx configuration with elevated privileges"
+      sudo "${SCRIPT_DIR}/nginx-sync.sh" || log "WARNING: aaPanel Nginx sync failed"
+    else
+      log "WARNING: aaPanel Nginx requires root access and sudo is unavailable"
+    fi
+  else
+    "${SCRIPT_DIR}/nginx-sync.sh" || log "WARNING: aaPanel Nginx sync skipped or failed"
+  fi
+fi
 docker buildx prune --builder "${BUILDER}" -af --filter until=24h >/dev/null || true
 docker image prune -a --filter "label=com.project=${PROJECT}" -f >/dev/null || true
 compose ps
