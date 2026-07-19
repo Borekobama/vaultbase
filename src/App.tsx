@@ -9,7 +9,7 @@ import { useRegistry } from './hooks/useRegistry'
 import { formatBytes } from './lib/format'
 
 const pageCopy: Record<View, { eyebrow: string; title: string; description: string }> = {
-  Overview: { eyebrow: 'BACKUP CONTROL PLANE', title: 'Good morning, Berke', description: 'Monitor backups, keep-alive checks, and runner health.' },
+  Overview: { eyebrow: 'BACKUP CONTROL PLANE', title: 'Vaultbase overview', description: 'Monitor backups, keep-alive checks, and runner health.' },
   Projects: { eyebrow: 'WORKSPACE', title: 'Projects', description: 'Configure protection for connected Supabase projects.' },
   Planner: { eyebrow: 'COST CONTROL', title: 'Backup planner', description: 'Balance recovery frequency against Supabase egress and R2 storage.' },
   Secrets: { eyebrow: 'WORKSPACE', title: 'Secrets', description: 'Review encrypted secret references without exposing values.' },
@@ -72,6 +72,15 @@ export default function App() {
     }
   }
 
+  const refresh = async () => {
+    try {
+      await registry.refresh()
+      notify('Registry refreshed.')
+    } catch {
+      // The registry hook exposes the request failure in the error banner.
+    }
+  }
+
   const downloadBackup = async (activityId: string) => {
     if (downloadingId) return
     setDownloadingId(activityId)
@@ -95,14 +104,14 @@ export default function App() {
     <a className="skip-link" href="#main-content">Skip to content</a>
     <Sidebar view={view} activityCount={registry.activities.length} onNavigate={setView}/>
     <main className="main" id="main-content" tabIndex={-1}>
-      <header className="topbar"><div className="breadcrumbs" aria-label="Breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><strong>{view}</strong></div><div className="top-actions"><span className="environment-badge">Production</span><button className="icon-control" type="button" aria-label="Notifications"><Bell size={17}/><i aria-hidden="true"/></button></div></header>
+      <header className="topbar"><div className="breadcrumbs" aria-label="Breadcrumb"><span>Workspace</span><span aria-hidden="true">/</span><strong>{view}</strong></div><div className="top-actions"><span className="environment-badge">Production</span><button className="icon-control" type="button" aria-label="View activity" onClick={() => setView('Activity')}><Bell size={17}/></button></div></header>
       <div className="content">
         <div className="page-heading"><div><div className="eyebrow">{copy.eyebrow}</div><h1>{copy.title}</h1><p>{copy.description}</p></div>{view !== 'Settings' && <button className="primary" type="button" onClick={() => setDialogOpen(true)}><Plus size={15} aria-hidden="true"/>Add project</button>}</div>
         {registry.error && <div className="error-banner" role="alert"><span>{registry.error}</span><button type="button" className="icon-control" aria-label="Dismiss error" onClick={registry.clearError}><X size={16}/></button></div>}
         {registry.loading ? <LoadingState/> : <>
           {view === 'Overview' && <><section className="metrics" aria-label="Workspace summary"><Metric label="Protected projects" value={String(registry.projects.length)} detail={`${healthy} healthy · ${registry.projects.length - healthy} need attention`} icon={<Database size={15}/>}/><Metric label="Backups in last 24 hours" value={String(recentBackups.length)} detail={backupDetail} icon={<Activity size={15}/>}/><Metric label="Encrypted storage" value={formatBytes(storageBytes)} detail="Cloudflare R2 · GFS retention" icon={<HardDrive size={15}/>}/></section><section className="notice"><ShieldCheck size={19} aria-hidden="true"/><div><strong>Recovery infrastructure connected</strong><p>Backups are encrypted before upload and catalogued in local PostgreSQL.</p></div><button type="button" onClick={() => setView('Activity')}>View activity →</button></section></>}
           {(view === 'Overview' || view === 'Projects') && (
-            <ProjectTable projects={registry.projects} busyJob={busyJob} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onRefresh={() => notify('Registry is already up to date.')} onAdd={() => setDialogOpen(true)}/>
+            <ProjectTable projects={registry.projects} busyJob={busyJob} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
           )}
           {view === 'Planner' && <PlannerPage projects={registry.projects}/>} {view === 'Secrets' && <SecretsPage projects={registry.projects}/>} {view === 'Activity' && <ActivityPage activities={registry.activities} downloadingId={downloadingId} onDownload={downloadBackup}/>} {view === 'Settings' && <SettingsPage/>}
         </>}

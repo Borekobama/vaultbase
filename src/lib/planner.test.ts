@@ -15,4 +15,10 @@ describe('backup frequency planner', () => {
     expect(recommendBackupFrequency('free', 41_000_000).label).toBe('Every 12 hours')
     expect(recommendBackupFrequency('free', 284_000_000).label).toBe('Weekly')
   })
+
+  it('does not invent an Enterprise contract allowance', () => {
+    const result = recommendBackupFrequency('enterprise', 100_000_000)
+    expect(result.label).toBe('Custom contract')
+    expect(result.warning).toMatch(/Enterprise contract/)
+  })
 })

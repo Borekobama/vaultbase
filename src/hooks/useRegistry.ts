@@ -35,11 +35,19 @@ export function useRegistry() {
     }
   }, [])
 
+  const refresh = useCallback(() => run(() => registryService.load()), [run])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { void refresh().catch(() => undefined) }, 30_000)
+    return () => window.clearInterval(timer)
+  }, [refresh])
+
   return {
     ...state,
     loading,
     error,
     clearError: () => setError(null),
+    refresh,
     addProject: (input: NewProjectInput) => run(() => registryService.addProject(input)),
     runBackup: (projectId: string) => run(() => registryService.runBackup(projectId)),
     runKeepAlive: (projectId: string) => run(() => registryService.runKeepAlive(projectId)),

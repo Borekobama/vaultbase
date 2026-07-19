@@ -43,20 +43,22 @@ services:
       VAULTBASE_MASTER_KEY: ${VAULTBASE_MASTER_KEY:?Set VAULTBASE_MASTER_KEY in .env}
       SECRETS_DIRECTORY: /var/lib/vaultbase/secrets
       STORAGE_CACHE_DIRECTORY: /var/lib/vaultbase/storage-cache
+      WORK_DIRECTORY: /var/lib/vaultbase/work
       R2_ENV_FILE: /run/secrets/r2.env
       RESTIC_PASSWORD_FILE: /run/secrets/restic-password
       RESTIC_CACHE_DIR: /var/cache/vaultbase/restic
       PG_BIN_DIRECTORY: /usr/lib/postgresql/17/bin
+      SUPABASE_CA_BUNDLE_FILE: /run/secrets/supabase-ca.crt
       TZ: ${TZ:-Europe/Zurich}
     volumes:
       - ../runtime/secrets:/var/lib/vaultbase/secrets
       - ../runtime/storage-cache:/var/lib/vaultbase/storage-cache
       - ../runtime/restic-cache:/var/cache/vaultbase/restic
+      - scheduler_work:/var/lib/vaultbase/work
       - ../secrets/r2.env:/run/secrets/r2.env:ro
       - ../secrets/restic-password:/run/secrets/restic-password:ro
+      - ../certs/prod-ca-2021.crt:/run/secrets/supabase-ca.crt:ro
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=2g,mode=1777
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     labels:
@@ -90,21 +92,23 @@ services:
       VAULTBASE_MASTER_KEY: ${VAULTBASE_MASTER_KEY:?Set VAULTBASE_MASTER_KEY in .env}
       SECRETS_DIRECTORY: /var/lib/vaultbase/secrets
       STORAGE_CACHE_DIRECTORY: /var/lib/vaultbase/storage-cache
+      WORK_DIRECTORY: /var/lib/vaultbase/work
       R2_ENV_FILE: /run/secrets/r2.env
       RESTIC_PASSWORD_FILE: /run/secrets/restic-password
       RESTIC_CACHE_DIR: /var/cache/vaultbase/restic
       PG_BIN_DIRECTORY: /usr/lib/postgresql/17/bin
+      SUPABASE_CA_BUNDLE_FILE: /run/secrets/supabase-ca.crt
     ports:
       - "127.0.0.1:${VAULTBASE_PORT:-12013}:8787"
     volumes:
       - ../runtime/secrets:/var/lib/vaultbase/secrets
       - ../runtime/storage-cache:/var/lib/vaultbase/storage-cache
       - ../runtime/restic-cache:/var/cache/vaultbase/restic
+      - app_work:/var/lib/vaultbase/work
       - ../secrets/r2.env:/run/secrets/r2.env:ro
       - ../secrets/restic-password:/run/secrets/restic-password:ro
+      - ../certs/prod-ca-2021.crt:/run/secrets/supabase-ca.crt:ro
     read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=2g,mode=1777
     cap_drop:
       - ALL
     security_opt:
@@ -123,6 +127,12 @@ services:
 
 volumes:
   postgres_data:
+    labels:
+      com.project: vaultbase
+  app_work:
+    labels:
+      com.project: vaultbase
+  scheduler_work:
     labels:
       com.project: vaultbase
 

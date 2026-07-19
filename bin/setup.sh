@@ -40,6 +40,11 @@ if ! grep -q '^RESTIC_REPOSITORY=' .env; then printf 'RESTIC_REPOSITORY=replace-
 if ! grep -q '^RESTIC_PASSWORD=' .env; then printf 'RESTIC_PASSWORD=replace-with-original-restic-password\n' >> .env; fi
 chmod 600 .env
 
+if [ ! -s certs/prod-ca-2021.crt ]; then
+  echo "Missing certs/prod-ca-2021.crt. Restore the tracked Supabase root certificate before deployment." >&2
+  exit 1
+fi
+
 if "${ROOT}/bin/materialize-secrets.sh"; then
   echo "Deployment secrets are ready. You can run ./bin/deploy.sh."
 else

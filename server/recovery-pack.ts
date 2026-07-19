@@ -1,12 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { createReadStream } from 'node:fs'
+import { readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { config } from './config.js'
 import { localPool } from './db.js'
 import { runProcess } from './process.js'
 import { secretStore } from './secret-store.js'
 import { syncStorageObjects } from './storage-sync.js'
+import { withJobLock } from './job-lock.js'
+import { createWorkDirectory } from './work-directory.js'
+import { postgresSslEnvironment } from './database-ssl.js'
 
 const excludedManagedSchemas = ['auth', 'storage', 'extensions', 'graphql', 'graphql_public', 'supabase_functions', 'realtime', '_analytics', '_realtime']
 
@@ -19,12 +22,14 @@ function postgresEnvironment(rawUrl: string) {
     PGDATABASE: url.pathname.slice(1) || 'postgres',
     PGUSER: decodeURIComponent(url.username),
     PGPASSWORD: decodeURIComponent(url.password),
-    PGSSLMODE: url.hostname === 'localhost' || url.hostname === '127.0.0.1' ? 'disable' : 'require',
+    ...postgresSslEnvironment(url.hostname),
   }
 }
 
 async function fileDigest(path: string) {
-  return createHash('sha256').update(await readFile(path)).digest('hex')
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest('hex')
 }
 
 async function parseEnvironmentFile(path: string) {
@@ -36,13 +41,13 @@ async function parseEnvironmentFile(path: string) {
   return values
 }
 
-export async function createRecoveryPack(projectId: string) {
+async function createRecoveryPackUnlocked(projectId: string) {
   const projectResult = await localPool.query('SELECT id, project_ref, backup_mode, secret_ref FROM vaultbase.projects WHERE id=$1 AND enabled=true', [projectId])
   if (!projectResult.rowCount) throw new Error('Enabled project not found.')
   const project = projectResult.rows[0]
   const snapshotId = randomUUID()
   const startedAt = new Date()
-  const directory = await mkdtemp(join(tmpdir(), `vaultbase-${projectId}-`))
+  const directory = await createWorkDirectory(projectId)
   const databaseDirectory = join(directory, 'database')
   const { mkdir } = await import('node:fs/promises')
   await mkdir(databaseDirectory, { mode: 0o700 })
@@ -98,6 +103,11 @@ export async function createRecoveryPack(projectId: string) {
     const message = error instanceof Error ? error.message : 'Unknown backup error'
     await localPool.query(`UPDATE vaultbase.snapshots SET status='failed', error_summary=$2, completed_at=now() WHERE id=$1`, [snapshotId, message.slice(0, 500)])
     await localPool.query(`UPDATE vaultbase.projects SET status='failed', updated_at=now() WHERE id=$1`, [projectId])
+    await localPool.query(`INSERT INTO vaultbase.activities(id, project_id, snapshot_id, event_type, status, message, details, occurred_at) VALUES ($1,$2,$3,'backup','failed','Recovery pack failed',$4,now())`, [randomUUID(), projectId, snapshotId, { error: message.slice(0, 500) }]).catch(activityError => console.error('[backup:activity]', activityError))
     throw error
   } finally { await rm(directory, { recursive: true, force: true }) }
+}
+
+export function createRecoveryPack(projectId: string) {
+  return withJobLock(`backup:${projectId}`, () => createRecoveryPackUnlocked(projectId))
 }

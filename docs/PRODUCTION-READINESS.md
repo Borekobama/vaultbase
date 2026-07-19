@@ -14,10 +14,13 @@
 - Authenticated ZIP download stream
 - Isolated PostgreSQL restore drill with checksum, schema, data and `ANALYZE` verification
 - GFS retention: 24 hourly, 7 daily, 4 weekly, 12 monthly, protected labels
-- Daily metadata mirror timers, verification timer and weekly prune timer
+- Daily metadata mirror timer and weekly retention/prune timer
 - Authenticated React UI with real project, job, activity and download data
 - Secure HttpOnly session flow with CSRF/origin protection
-- Per-project backup and keep-alive scheduler with jitter and advisory overlap locks
+- Per-project backup and keep-alive scheduler with advisory overlap locks
+- Durable manual-backup jobs with 202 responses and status polling
+- Retention-to-catalog reconciliation with explicit expired snapshot state
+- Verified Supabase TLS using a mounted CA bundle
 - Hardened Docker stack with PostgreSQL 17, read-only application containers and loopback-only port 12013
 - aaPanel Nginx HTTPS reverse-proxy deployment scripts
 
@@ -35,5 +38,6 @@
 - Immutable weekly/monthly R2 export bucket and bucket-lock policy
 - Second-provider replication
 - Automated temporary Supabase-project restore drills; current drills target isolated PostgreSQL
+- Scheduled restore-verification drills and external dead-man monitoring
 
 The core database backup, download, restore-verification, keep-alive and metadata-mirror system is deployable without these integrations. Features in this backlog must not be represented as available in the UI until implemented and externally verified.

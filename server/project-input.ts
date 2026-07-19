@@ -1,11 +1,22 @@
 import { z } from 'zod'
+import { Cron } from 'croner'
+
+const cronExpression = z.string().trim().min(1).max(100).refine(value => {
+  try {
+    const cron = new Cron(value)
+    cron.stop()
+    return true
+  } catch {
+    return false
+  }
+}, 'Enter a valid cron expression.')
 
 export const projectInputSchema = z.object({
   displayName: z.string().trim().min(2).max(80),
   plan: z.enum(['free', 'pro', 'team', 'enterprise']),
   databaseUrl: z.string().trim().min(20).max(2048),
-  backupSchedule: z.string().trim().min(1).max(100).default('0 3 * * *'),
-  keepAliveSchedule: z.string().trim().max(100).nullable().default(null),
+  backupSchedule: cronExpression.default('0 3 * * *'),
+  keepAliveSchedule: cronExpression.nullable().default(null),
   backupMode: z.enum(['database', 'full_project']).default('database'),
 })
 

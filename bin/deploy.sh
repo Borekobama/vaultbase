@@ -55,6 +55,7 @@ for secret in secrets/r2.env secrets/restic-password; do
   [ -s "${secret}" ] || { echo "Could not prepare ${secret} from .env." >&2; exit 1; }
   chmod 600 "${secret}"
 done
+[ -s certs/prod-ca-2021.crt ] || { echo "Missing tracked Supabase CA certificate: certs/prod-ca-2021.crt" >&2; exit 1; }
 [ -s .env ] || { echo "Missing .env; run bin/setup.sh first." >&2; exit 1; }
 chmod 600 .env
 

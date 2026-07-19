@@ -1,6 +1,6 @@
 import type { SupabasePlan } from '../domain'
 
-export const PLAN_EGRESS_GB: Record<SupabasePlan, number> = {
+export const PLAN_EGRESS_GB: Record<Exclude<SupabasePlan, 'enterprise'>, number> = {
   free: 5,
   pro: 250,
   team: 250,
@@ -35,6 +35,9 @@ const GB = 1_000_000_000
 const MONTH_HOURS = 30 * 24
 
 export function recommendBackupFrequency(plan: SupabasePlan, dumpBytes: number): BackupRecommendation {
+  if (plan === 'enterprise') {
+    return { measured: false, label: 'Custom contract', intervalHours: null, planQuotaBytes: 0, backupBudgetBytes: 0, projectedMonthlyEgressBytes: 0, projectedR2Bytes: 0, backupsPerMonth: 0, warning: 'Configure the egress allowance from your Enterprise contract before calculating a schedule.' }
+  }
   const planQuotaBytes = PLAN_EGRESS_GB[plan] * GB
   const backupBudgetBytes = planQuotaBytes * BACKUP_BUDGET_RATIO
   if (!Number.isFinite(dumpBytes) || dumpBytes <= 0) {

@@ -31,7 +31,7 @@ COPY --from=build /app/server-dist ./server-dist
 COPY server/migrations ./server-dist/migrations
 COPY docker/entrypoint.sh /usr/local/bin/vaultbase-entrypoint
 RUN chmod 0555 /usr/local/bin/vaultbase-entrypoint \
- && mkdir -p /var/lib/vaultbase/secrets /var/lib/vaultbase/storage-cache /var/cache/vaultbase/restic \
+ && mkdir -p /var/lib/vaultbase/secrets /var/lib/vaultbase/storage-cache /var/lib/vaultbase/work /var/cache/vaultbase/restic \
  && chown -R node:node /var/lib/vaultbase /var/cache/vaultbase
 USER node
 EXPOSE 8787

@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from 'pg'
 import { createMirrorPool, localPool } from './db.js'
 import { migrate } from './migrate.js'
 
-const tables = ['settings', 'projects', 'project_secret_refs', 'snapshots', 'activities', 'audit_events'] as const
+const tables = ['settings', 'projects', 'project_secret_refs', 'snapshots', 'activities', 'audit_events', 'jobs'] as const
 
 async function readSnapshot(client: PoolClient) {
   const data: Record<string, unknown[]> = {}
@@ -29,6 +29,7 @@ async function writeSnapshot(client: PoolClient, data: Record<string, unknown[]>
       const rows = data[table]
       if (rows.length) await client.query(`INSERT INTO vaultbase.${table} SELECT * FROM jsonb_populate_recordset(null::vaultbase.${table}, $1::jsonb)`, [JSON.stringify(rows)])
     }
+    await client.query(`SELECT setval(pg_get_serial_sequence('vaultbase.audit_events','id'), coalesce((SELECT max(id) FROM vaultbase.audit_events), 1), EXISTS (SELECT 1 FROM vaultbase.audit_events))`)
     await client.query('COMMIT')
   } catch (error) {
     await client.query('ROLLBACK')

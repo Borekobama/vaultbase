@@ -30,7 +30,9 @@ The API binds to `127.0.0.1:8787`. Put it behind the same HTTPS reverse proxy as
 
 ## VPS schedule
 
-Install the units in `deploy/systemd`, then enable both timers:
+The units under `deploy/systemd` are a deprecated legacy deployment path and are not used by the supported Docker deployment. They execute TypeScript sources with development tooling and may drift from the compiled container runtime. Do not install them for new deployments.
+
+For historical systemd installations, the former setup was:
 
 ```bash
 sudo systemctl enable --now vaultbase-mirror.timer vaultbase-mirror-check.timer vaultbase-api.service

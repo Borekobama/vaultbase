@@ -8,13 +8,13 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3'
 
-const endpoint = process.env.R2_ENDPOINT ?? 'https://9b7d41a22815b37d87c6115d3f774afb.r2.cloudflarestorage.com'
-const bucket = process.env.R2_BUCKET ?? 'vaultbase-backup'
+const endpoint = process.env.R2_ENDPOINT
+const bucket = process.env.R2_BUCKET
 const accessKeyId = process.env.AWS_ACCESS_KEY_ID
 const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY
 
-if (!accessKeyId || !secretAccessKey) {
-  console.error('AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required.')
+if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
+  console.error('R2_ENDPOINT, R2_BUCKET, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY are required.')
   process.exit(1)
 }
 

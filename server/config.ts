@@ -21,6 +21,9 @@ const schema = z.object({
   RESTIC_PASSWORD_FILE: z.string().min(1).default('/etc/vaultbase/restic-password'),
   PG_BIN_DIRECTORY: z.string().min(1).default('/usr/bin'),
   STORAGE_CACHE_DIRECTORY: z.string().min(1).default('/var/lib/vaultbase/storage-cache'),
+  WORK_DIRECTORY: z.string().min(1).default('/var/lib/vaultbase/work'),
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(1),
+  SUPABASE_CA_BUNDLE_FILE: z.string().min(1).default('/run/secrets/supabase-ca.crt'),
 })
 
 export const config = schema.parse(process.env)

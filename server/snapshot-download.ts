@@ -1,11 +1,11 @@
 import { ZipArchive } from 'archiver'
 import type { Response } from 'express'
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile, readdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { config } from './config.js'
 import { localPool } from './db.js'
 import { runProcess } from './process.js'
+import { createWorkDirectory } from './work-directory.js'
 
 async function resticEnvironment() {
   const values: NodeJS.ProcessEnv = {}
@@ -31,7 +31,7 @@ export async function streamSnapshotDownload(snapshotId: string, response: Respo
   const result = await localPool.query(`SELECT s.restic_snapshot_id, s.started_at, p.id project_id FROM vaultbase.snapshots s JOIN vaultbase.projects p ON p.id=s.project_id WHERE s.id=$1 AND s.status IN ('uploaded','verified','restore_verified')`, [snapshotId])
   if (!result.rowCount || !result.rows[0].restic_snapshot_id) throw new Error('Downloadable snapshot not found.')
   const snapshot = result.rows[0]
-  const target = await mkdtemp(join(tmpdir(), 'vaultbase-download-'))
+  const target = await createWorkDirectory('download')
   let cleaned = false
   const cleanup = async () => { if (!cleaned) { cleaned = true; await rm(target, { recursive: true, force: true }) } }
   try {

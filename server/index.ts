@@ -11,21 +11,39 @@ import { migrate } from './migrate.js'
 import { syncMirror } from './mirror.js'
 import { normalizeProjectId, parseSupabaseDatabaseUrl, projectInputSchema } from './project-input.js'
 import { secretStore } from './secret-store.js'
-import { createRecoveryPack } from './recovery-pack.js'
 import { streamSnapshotDownload } from './snapshot-download.js'
 import { verifyResticSnapshot } from './verify-recovery.js'
 import { runKeepAlive } from './keep-alive.js'
+import { JobAlreadyRunningError } from './job-lock.js'
+import { cleanupStaleWorkDirectories } from './work-directory.js'
+import { enqueueBackup, getJob, resumeManualJobs } from './manual-jobs.js'
 
 const app = express()
 const sessions = new Map<string, number>()
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000
+const sessionSweep = setInterval(() => {
+  const now = Date.now()
+  for (const [session, expires] of sessions) if (expires <= now) sessions.delete(session)
+}, 60 * 60 * 1000)
+sessionSweep.unref()
 app.disable('x-powered-by')
+app.set('trust proxy', config.TRUST_PROXY_HOPS)
 app.use(helmet())
 app.use(express.json({ limit: '64kb' }))
 app.use(rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }))
 
 function cookies(header: string | undefined) {
-  return Object.fromEntries((header ?? '').split(';').map(value => value.trim().split('=').map(decodeURIComponent)).filter(parts => parts.length === 2))
+  const result: Record<string, string> = {}
+  for (const raw of (header ?? '').split(';')) {
+    const separator = raw.indexOf('=')
+    if (separator < 1) continue
+    try {
+      result[decodeURIComponent(raw.slice(0, separator).trim())] = decodeURIComponent(raw.slice(separator + 1).trim())
+    } catch {
+      // Ignore malformed cookies instead of failing the entire request.
+    }
+  }
+  return result
 }
 
 function authenticated(request: express.Request) {
@@ -109,6 +127,7 @@ app.put('/api/projects/:id/secrets/storage', async (request, response, next) => 
     const reference = `supabase/${id}/storage-s3`
     await secretStore.put(reference, JSON.stringify(input))
     await localPool.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'storage_s3',$2) ON CONFLICT (project_id,kind) DO UPDATE SET secret_ref=excluded.secret_ref, configured_at=now()`, [id, reference])
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token','secret.storage.updated','project',$1)`, [id])
     response.status(204).end()
   } catch (error) { if (error instanceof z.ZodError) return response.status(400).json({ error: 'Invalid Storage S3 credentials.' }); next(error) }
 })
@@ -156,7 +175,7 @@ app.delete('/api/projects/:id', async (request, response, next) => {
   try {
     const id = normalizeProjectId(request.params.id)
     const client = await localPool.connect()
-    let secretRef: string | null = null
+    let secretRefs: string[] = []
     try {
       await client.query('BEGIN')
       const project = await client.query('SELECT secret_ref FROM vaultbase.projects WHERE id=$1 FOR UPDATE', [id])
@@ -164,7 +183,8 @@ app.delete('/api/projects/:id', async (request, response, next) => {
         await client.query('ROLLBACK')
         return response.status(404).json({ error: 'Project not found.' })
       }
-      secretRef = project.rows[0].secret_ref
+      const references = await client.query('SELECT secret_ref FROM vaultbase.project_secret_refs WHERE project_id=$1', [id])
+      secretRefs = [...new Set([project.rows[0].secret_ref, ...references.rows.map(row => row.secret_ref)].filter(Boolean))]
       await client.query('DELETE FROM vaultbase.projects WHERE id=$1', [id])
       await client.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token', 'project.deleted', 'project', $1)`, [id])
       await client.query('COMMIT')
@@ -172,15 +192,23 @@ app.delete('/api/projects/:id', async (request, response, next) => {
       await client.query('ROLLBACK')
       throw error
     } finally { client.release() }
-    if (secretRef) await secretStore.remove(secretRef)
+    await Promise.all(secretRefs.map(reference => secretStore.remove(reference)))
     response.status(204).end()
   } catch (error) { next(error) }
 })
 
 app.post('/api/projects/:id/backups', async (request, response, next) => {
+  const id = normalizeProjectId(request.params.id)
   try {
-    const result = await createRecoveryPack(normalizeProjectId(request.params.id))
-    response.status(201).json({ snapshotId: result.snapshotId, resticSnapshotId: result.resticSnapshotId, bytes: result.dumpBytes, status: 'uploaded' })
+    response.status(202).json(await enqueueBackup(id))
+  } catch (error) { next(error) }
+})
+
+app.get('/api/jobs/:id', async (request, response, next) => {
+  try {
+    const job = await getJob(request.params.id)
+    if (!job) return response.status(404).json({ error: 'Job not found.' })
+    response.json(job)
   } catch (error) { next(error) }
 })
 
@@ -195,7 +223,10 @@ app.get('/api/snapshots', async (_request, response) => {
 })
 
 app.get('/api/snapshots/:id/download', async (request, response, next) => {
-  try { await streamSnapshotDownload(request.params.id, response) } catch (error) { if (!response.headersSent) next(error) }
+  try {
+    await streamSnapshotDownload(request.params.id, response)
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token','snapshot.downloaded','snapshot',$1)`, [request.params.id])
+  } catch (error) { if (!response.headersSent) next(error) }
 })
 
 app.get('/api/activities/:id/download', async (request, response, next) => {
@@ -203,6 +234,7 @@ app.get('/api/activities/:id/download', async (request, response, next) => {
     const activity = await localPool.query(`SELECT snapshot_id FROM vaultbase.activities WHERE id=$1 AND event_type='backup' AND status='success'`, [request.params.id])
     if (!activity.rowCount || !activity.rows[0].snapshot_id) return response.status(404).json({ error: 'Downloadable backup not found.' })
     await streamSnapshotDownload(activity.rows[0].snapshot_id, response)
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token','snapshot.downloaded','snapshot',$1,$2)`, [activity.rows[0].snapshot_id, { activityId: request.params.id }])
   } catch (error) { if (!response.headersSent) next(error) }
 })
 
@@ -210,24 +242,34 @@ app.post('/api/snapshots/:id/verify', async (request, response, next) => {
   try {
     const snapshot = await localPool.query('SELECT restic_snapshot_id FROM vaultbase.snapshots WHERE id=$1', [request.params.id])
     if (!snapshot.rowCount || !snapshot.rows[0].restic_snapshot_id) return response.status(404).json({ error: 'Snapshot not found.' })
-    response.json(await verifyResticSnapshot(snapshot.rows[0].restic_snapshot_id))
-  } catch (error) { next(error) }
+    const result = await verifyResticSnapshot(snapshot.rows[0].restic_snapshot_id)
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token','snapshot.verified','snapshot',$1)`, [request.params.id])
+    response.json(result)
+  } catch (error) {
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token','snapshot.verify_failed','snapshot',$1,$2)`, [request.params.id, { error: error instanceof Error ? error.message.slice(0, 500) : 'Unknown error' }]).catch(() => undefined)
+    next(error)
+  }
 })
 
 app.post('/api/mirror/run', async (_request, response, next) => {
   try { response.status(202).json(await syncMirror()) } catch (error) { next(error) }
 })
 
-app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  console.error(error instanceof Error ? error.message : 'Unhandled server error')
+app.use((error: unknown, request: express.Request, response: express.Response, _next: express.NextFunction) => {
+  if (error instanceof JobAlreadyRunningError) return response.status(409).json({ error: error.message })
+  console.error(`[${request.method} ${request.path}]`, error instanceof Error ? error.stack : 'Unhandled server error')
   response.status(500).json({ error: 'Internal server error' })
 })
 
 if (config.SERVE_STATIC) {
   const dist = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
-  app.use(express.static(dist, { index: false, maxAge: '1y', immutable: true }))
+  app.use(express.static(dist, { index: false, maxAge: '1y', immutable: true, setHeaders: (response, path) => {
+    if (path.endsWith('/index.html')) response.setHeader('Cache-Control', 'no-cache')
+  } }))
   app.get('*path', (_request, response) => response.sendFile(join(dist, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }))
 }
 
 await migrate(localPool)
+await cleanupStaleWorkDirectories()
+await resumeManualJobs()
 app.listen(config.API_PORT, config.API_HOST, () => console.log(`Vaultbase API listening on ${config.API_HOST}:${config.API_PORT}`))

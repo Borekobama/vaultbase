@@ -1,9 +1,9 @@
 export type View = 'Overview' | 'Projects' | 'Planner' | 'Secrets' | 'Activity' | 'Settings'
-export type SupabasePlan = 'free' | 'pro' | 'team'
+export type SupabasePlan = 'free' | 'pro' | 'team' | 'enterprise'
 export type BackupMode = 'database' | 'full_project'
 export type ProjectStatus = 'healthy' | 'warning' | 'pending' | 'running' | 'failed'
-export type JobType = 'backup' | 'keep_alive'
-export type ActivityStatus = 'success' | 'running' | 'failed'
+export type JobType = 'backup' | 'keep_alive' | 'retention'
+export type ActivityStatus = 'success' | 'running' | 'warning' | 'failed'
 
 export interface Project {
   id: string

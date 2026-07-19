@@ -26,7 +26,7 @@ export function ProjectTable({ projects, busyJob, onRunBackup, onRunKeepAlive, o
           <td data-label="Actions"><div className="row-actions"><button className="quiet action-button" type="button" disabled={Boolean(busyJob) || !project.enabled} aria-label={`Run keep-alive for ${project.id}`} onClick={() => onRunKeepAlive(project.id)}><Activity size={13} aria-hidden="true"/>{keepAliveRunning ? 'Checking…' : 'Ping'}</button><button className="quiet action-button" type="button" disabled={Boolean(busyJob) || !project.enabled} aria-label={`Run backup for ${project.id}`} onClick={() => onRunBackup(project.id)}><Play size={13} aria-hidden="true"/>{backupRunning ? 'Running…' : 'Backup'}</button></div></td>
         </tr>})}
       </tbody></table></div>
-      <div className="table-footer"><span>{projects.length} {projects.length === 1 ? 'project' : 'projects'}</span><span>Runner: <strong>home-nas-01</strong> <i aria-hidden="true"/></span></div>
+      <div className="table-footer"><span>{projects.length} {projects.length === 1 ? 'project' : 'projects'}</span><span>Runner: <strong>Docker service</strong> <i aria-hidden="true"/></span></div>
     </>}
   </section>
 }

@@ -1,10 +1,17 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { createReadStream } from 'node:fs'
+import { readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { config } from './config.js'
 import { localPool } from './db.js'
 import { runProcess } from './process.js'
+import { createWorkDirectory } from './work-directory.js'
+
+async function fileDigest(path: string) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest('hex')
+}
 
 async function environmentFile(path: string) {
   const values: NodeJS.ProcessEnv = {}
@@ -27,7 +34,7 @@ async function findManifest(root: string): Promise<string> {
 
 export async function verifyResticSnapshot(resticSnapshotId: string) {
   if (!/^[a-f0-9]{8,64}$/i.test(resticSnapshotId)) throw new Error('Invalid Restic snapshot ID.')
-  const target = await mkdtemp(join(tmpdir(), 'vaultbase-verify-'))
+  const target = await createWorkDirectory('verify')
   const databaseName = `vaultbase_verify_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`
   let createdDatabase = false
   try {
@@ -37,15 +44,15 @@ export async function verifyResticSnapshot(resticSnapshotId: string) {
     const root = join(manifestPath, '..')
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { snapshotId: string; projectId: string; files: Array<{ path: string; bytes: number; sha256: string }> }
     for (const file of manifest.files) {
-      const content = await readFile(join(root, file.path))
-      if (content.byteLength !== file.bytes || createHash('sha256').update(content).digest('hex') !== file.sha256) throw new Error(`Checksum verification failed for ${file.path}.`)
+      const path = join(root, file.path)
+      if ((await stat(path)).size !== file.bytes || await fileDigest(path) !== file.sha256) throw new Error(`Checksum verification failed for ${file.path}.`)
     }
     await runProcess(join(config.PG_BIN_DIRECTORY, 'pg_restore'), ['--list', join(root, 'database', 'data.dump')])
 
     await localPool.query(`CREATE DATABASE ${databaseName}`)
     createdDatabase = true
     const localUrl = new URL(config.LOCAL_DATABASE_URL.replace('postgresql:///', 'postgresql://localhost/'))
-    const env = { ...process.env, PGHOST: localUrl.hostname || 'localhost', PGPORT: localUrl.port || '5432', PGUSER: localUrl.username || process.env.USER, PGDATABASE: databaseName, PGSSLMODE: 'disable' }
+    const env = { ...process.env, PGHOST: localUrl.hostname || 'localhost', PGPORT: localUrl.port || '5432', PGUSER: decodeURIComponent(localUrl.username) || process.env.USER, PGPASSWORD: decodeURIComponent(localUrl.password), PGDATABASE: databaseName, PGSSLMODE: 'disable' }
     const schemaPath = join(root, 'database', 'schema.sql')
     const compatibleSchemaPath = join(root, 'database', 'schema.verify.sql')
     const compatibleSchema = (await readFile(schemaPath, 'utf8')).replace(/^SET transaction_timeout = 0;\r?\n/gm, '')

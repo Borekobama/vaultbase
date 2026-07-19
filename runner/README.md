@@ -2,12 +2,7 @@
 
 The runner is the trusted process that resolves encrypted Supabase database secret references, creates logical recovery packs, encrypts them with Restic, and uploads them to Cloudflare R2.
 
-The supplied bucket is configured as:
-
-- Endpoint: `https://9b7d41a22815b37d87c6115d3f774afb.r2.cloudflarestorage.com`
-- Bucket: `vaultbase-backup`
-- S3 region: `auto`
-- Location: Western Europe (WEUR)
+Configure the R2 endpoint, bucket, region, and credentials only in the runner's ignored deployment files. Do not commit account-specific endpoints or bucket names to this repository.
 
 The Restic repository was initialized and integrity-checked on July 17, 2026. It is ready to receive encrypted snapshots. The initial password is stored locally at `.vaultbase-secrets/restic-password` and is excluded from Git.
 
@@ -16,7 +11,7 @@ The Restic repository was initialized and integrity-checked on July 17, 2026. It
 Create an R2 API token with:
 
 - `Object Read & Write`
-- Access restricted to the `vaultbase-backup` bucket
+- Access restricted to the configured backup bucket
 
 Cloudflare returns an Access Key ID and Secret Access Key once. Save them in your password manager, then place them only in `/etc/vaultbase/r2.env` on the runner. Do not paste them into chat, Git, the browser UI, or a shell command.
 
@@ -66,4 +61,4 @@ The UI and API can run on the same VPS. A domain is not technically required for
 
 The runner itself does not need to be public. Keep it bound to localhost or a private network and let the control-plane API enqueue jobs through a local Unix socket or authenticated private endpoint.
 
-The repository still contains a local mock UI, but the server-side database dump, encrypted secret storage, Restic upload, real download, restore verification, Storage S3 sync boundary, and systemd schedules are implemented. The next integration step is replacing the browser mock registry with authenticated API sessions.
+The production UI uses authenticated API sessions. A mock registry remains available only to automated tests and is excluded from production behavior.

@@ -160,7 +160,15 @@ const productionRegistryService = {
     await api('/api/projects', { method: 'POST', body: JSON.stringify({ displayName: input.name, plan: input.plan, databaseUrl: input.databaseUrl, backupSchedule: schedules[input.backupSchedule] ?? input.backupSchedule, keepAliveSchedule: input.plan === 'free' ? keepAlive[input.keepAliveSchedule] ?? input.keepAliveSchedule : null, backupMode: input.backupMode }) })
     return this.load()
   },
-  async runBackup(projectId: string) { await api(`/api/projects/${encodeURIComponent(projectId)}/backups`, { method: 'POST' }); return this.load() },
+  async runBackup(projectId: string) {
+    const queued = await api<{ id: string }>(`/api/projects/${encodeURIComponent(projectId)}/backups`, { method: 'POST' })
+    for (;;) {
+      await new Promise(resolve => window.setTimeout(resolve, 1_000))
+      const job = await api<{ status: 'queued' | 'running' | 'success' | 'failed'; error_summary?: string }>(`/api/jobs/${encodeURIComponent(queued.id)}`)
+      if (job.status === 'success') return this.load()
+      if (job.status === 'failed') throw new Error(job.error_summary ?? 'Backup job failed.')
+    }
+  },
   async runKeepAlive(projectId: string) { await api(`/api/projects/${encodeURIComponent(projectId)}/keep-alive`, { method: 'POST' }); return this.load() },
   async downloadBackup(activityId: string) {
     const response = await fetch(`/api/activities/${encodeURIComponent(activityId)}/download`, { credentials: 'same-origin' })

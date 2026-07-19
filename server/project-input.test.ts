@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSupabaseDatabaseUrl } from './project-input'
+import { parseSupabaseDatabaseUrl, projectInputSchema } from './project-input'
 
 describe('Supabase database connection parsing', () => {
   it('derives the project reference and region from a session pooler URL', () => {
@@ -16,5 +16,21 @@ describe('Supabase database connection parsing', () => {
 
   it('rejects the transaction pooler for backup jobs', () => {
     expect(() => parseSupabaseDatabaseUrl('postgresql://postgres.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:6543/postgres')).toThrow(/Session Pooler.*5432/i)
+  })
+
+  it('rejects invalid cron expressions at the API boundary', () => {
+    const result = projectInputSchema.safeParse({
+      displayName: 'Example project', plan: 'free', databaseUrl: 'postgresql://postgres.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres',
+      backupSchedule: 'definitely not cron', keepAliveSchedule: null, backupMode: 'database',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts valid backup and keep-alive cron expressions', () => {
+    const result = projectInputSchema.safeParse({
+      displayName: 'Example project', plan: 'free', databaseUrl: 'postgresql://postgres.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres',
+      backupSchedule: '0 */6 * * *', keepAliveSchedule: '0 9 */3 * *', backupMode: 'database',
+    })
+    expect(result.success).toBe(true)
   })
 })
