@@ -319,13 +319,29 @@ tbody tr:last-child td { border-bottom: 0; }
 .credential-project-toggle > span { display: flex; align-items: center; gap: 8px; color: #91a49b; font-size: 10px; }
 .credential-project-toggle svg { transition: transform .18s ease; }
 .credential-rows { background: #191a1c; }
+.credential-block { border-top: 1px solid #292b2e; }
 .credential-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 14px 18px; border-top: 1px solid #292b2e; }
+.credential-block .credential-row { border-top: 0; }
 .credential-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 4px; color: var(--green); background: var(--green-muted); }
 .credential-copy { min-width: 0; }
 .credential-copy strong, .credential-copy small, .credential-copy code { display: block; }
 .credential-copy strong { color: #d8dde2; font-size: 11px; font-weight: 550; }
 .credential-copy small { margin-top: 3px; color: var(--text-subtle); font-size: 9px; line-height: 1.4; }
 .credential-copy code { margin-top: 5px; overflow: hidden; color: #798b83; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.credential-actions { display: flex; align-items: center; gap: 6px; }
+.icon-help { width: 34px; display: inline-grid; place-items: center; padding: 0; color: #91a49b; }
+.icon-help[aria-expanded="true"] { border-color: #3d7259; color: var(--green); background: #1d3027; }
+.credential-help { padding: 16px 18px 17px 60px; border-top: 1px solid #2d3934; color: #9caaa3; background: #18201d; font-size: 10px; line-height: 1.6; }
+.credential-help > strong { display: block; margin: 0 0 5px; color: #d6e1db; font-size: 10px; font-weight: 600; }
+.credential-help > strong:not(:first-child) { margin-top: 14px; }
+.credential-help p { max-width: 760px; margin: 6px 0 0; }
+.credential-help ol { max-width: 760px; margin: 7px 0 0; padding-left: 18px; }
+.credential-help li + li { margin-top: 3px; }
+.credential-help code { color: #bdd1c7; font-size: 9px; }
+.credential-help a { display: inline-block; margin-top: 10px; color: var(--green); text-decoration: none; }
+.credential-help a:hover { text-decoration: underline; }
+.credential-risk { max-width: 780px; display: flex; align-items: flex-start; gap: 8px; padding: 9px 10px; margin-top: 9px; border: 1px solid #5c4930; border-radius: 4px; color: #d8b982; background: #2b241b; }
+.credential-risk svg { flex: 0 0 auto; margin-top: 1px; color: var(--amber); }
 .credential-form { padding: 16px 18px 18px 60px; border-top: 1px solid #33443d; background: #1b2420; }
 .credential-form .editor-field { display: block; }
 .credential-form .editor-field small { display: block; margin-top: 6px; color: #82958c; font-weight: 400; line-height: 1.5; }
@@ -422,7 +438,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .project-profile-note { grid-column: 1 / -1; }
   .credential-row { grid-template-columns: 30px minmax(0, 1fr) auto; padding: 13px 14px; }
   .credential-row .status { grid-column: 2; justify-self: start; }
-  .credential-row > button { grid-column: 3; grid-row: 1 / span 2; }
+  .credential-actions { grid-column: 3; grid-row: 1 / span 2; }
+  .credential-help { padding: 14px 15px; }
   .credential-form { padding: 15px; }
   .credential-form-grid { grid-template-columns: 1fr; }
   .credential-form-grid .wide { grid-column: auto; }

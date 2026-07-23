@@ -25,7 +25,16 @@ async function managementRequest(path: string, accessToken: string) {
 }
 
 export async function validateManagementCredentials(projectRef: string, accessToken: string) {
-  await managementRequest(`/v1/projects/${encodeURIComponent(projectRef)}`, accessToken)
+  const missing: string[] = []
+  for (const [, permission, template] of configEndpoints) {
+    try {
+      await managementRequest(template.replace('{ref}', encodeURIComponent(projectRef)), accessToken)
+    } catch (error) {
+      if (Number((error as { status?: number }).status) === 401) throw new Error('Supabase rejected this access token.')
+      missing.push(permission)
+    }
+  }
+  if (missing.length) throw new Error(`The token could not read all required configuration. Missing or unavailable: ${missing.join(', ')}.`)
 }
 
 export async function syncManagementConfiguration(projectId: string, projectRef: string, destination: string) {
