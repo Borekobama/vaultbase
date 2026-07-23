@@ -20,6 +20,20 @@ export const projectInputSchema = z.object({
   backupMode: z.enum(['database', 'full_project']).default('database'),
 })
 
+export const projectUpdateSchema = z.object({
+  displayName: z.string().trim().min(2).max(80),
+  environment: z.enum(['production', 'staging', 'development']),
+  notes: z.string().trim().max(240),
+  plan: z.enum(['free', 'pro', 'team', 'enterprise']),
+  backupSchedule: cronExpression,
+  keepAliveSchedule: cronExpression.nullable(),
+  backupMode: z.enum(['database', 'full_project']),
+}).superRefine((value, context) => {
+  if (value.plan !== 'free' && value.keepAliveSchedule !== null) {
+    context.addIssue({ code: 'custom', path: ['keepAliveSchedule'], message: 'Keep-alive is only available for Free projects.' })
+  }
+})
+
 export function normalizeProjectId(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 63)
 }

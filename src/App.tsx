@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, Bell, Database, HardDrive, Plus, ShieldCheck, X } from 'lucide-react'
-import type { NewProjectInput, View } from './domain'
+import type { NewProjectInput, UpdateProjectInput, View } from './domain'
 import { AddProjectDialog } from './components/AddProjectDialog'
 import { ActivityPage, PlannerPage, SecretsPage, SettingsPage } from './components/Pages'
 import { ProjectTable } from './components/ProjectTable'
@@ -72,6 +72,11 @@ export default function App() {
     }
   }
 
+  const updateProject = async (projectId: string, input: UpdateProjectInput) => {
+    await registry.updateProject(projectId, input)
+    notify(`${input.displayName} was updated.`)
+  }
+
   const refresh = async () => {
     try {
       await registry.refresh()
@@ -111,7 +116,7 @@ export default function App() {
         {registry.loading ? <LoadingState/> : <>
           {view === 'Overview' && <><section className="metrics" aria-label="Workspace summary"><Metric label="Protected projects" value={String(registry.projects.length)} detail={`${healthy} healthy · ${registry.projects.length - healthy} need attention`} icon={<Database size={15}/>}/><Metric label="Backups in last 24 hours" value={String(recentBackups.length)} detail={backupDetail} icon={<Activity size={15}/>}/><Metric label="Encrypted storage" value={formatBytes(storageBytes)} detail="Cloudflare R2 · GFS retention" icon={<HardDrive size={15}/>}/></section><section className="notice"><ShieldCheck size={19} aria-hidden="true"/><div><strong>Recovery infrastructure connected</strong><p>Backups are encrypted before upload and catalogued in local PostgreSQL.</p></div><button type="button" onClick={() => setView('Activity')}>View activity →</button></section></>}
           {(view === 'Overview' || view === 'Projects') && (
-            <ProjectTable projects={registry.projects} activities={registry.activities} busyJob={busyJob} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
+            <ProjectTable projects={registry.projects} activities={registry.activities} busyJob={busyJob} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onUpdate={updateProject} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
           )}
           {view === 'Planner' && <PlannerPage projects={registry.projects}/>} {view === 'Secrets' && <SecretsPage projects={registry.projects}/>} {view === 'Activity' && <ActivityPage activities={registry.activities} downloadingId={downloadingId} onDownload={downloadBackup}/>} {view === 'Settings' && <SettingsPage/>}
         </>}

@@ -1,6 +1,6 @@
-import { Activity, Archive, CalendarClock, Database, HardDrive, Play, RotateCw } from 'lucide-react'
-import type { ReactNode } from 'react'
-import type { ActivityItem, Project } from '../domain'
+import { Activity, Archive, CalendarClock, Database, HardDrive, Pencil, Play, RotateCw, X } from 'lucide-react'
+import { type FormEvent, type ReactNode, useState } from 'react'
+import type { ActivityItem, Project, UpdateProjectInput } from '../domain'
 import { formatBytes, formatDateTime } from '../lib/format'
 
 interface ProjectTableProps {
@@ -9,6 +9,7 @@ interface ProjectTableProps {
   busyJob: string | null
   onRunBackup: (projectId: string) => void
   onRunKeepAlive: (projectId: string) => void
+  onUpdate: (projectId: string, input: UpdateProjectInput) => Promise<void>
   onRefresh: () => void
   onAdd: () => void
 }
@@ -20,7 +21,8 @@ const scheduleLabel: Record<string, string> = {
   '0 3 * * 0': 'Sunday at 03:00',
 }
 
-export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRunKeepAlive, onRefresh, onAdd }: ProjectTableProps) {
+export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRunKeepAlive, onUpdate, onRefresh, onAdd }: ProjectTableProps) {
+  const [editingId, setEditingId] = useState<string | null>(null)
   return <section className="panel" aria-labelledby="projects-title">
     <div className="panel-heading"><div><h2 id="projects-title">Recovery ledger</h2><p>Backup coverage, recovery points, and the next scheduled action</p></div><button className="quiet button-with-icon" type="button" onClick={onRefresh}><RotateCw size={14} aria-hidden="true"/>Refresh</button></div>
     {projects.length === 0 ? <div className="empty-state"><Database size={24} aria-hidden="true"/><h3>No projects connected</h3><p>Add a Supabase project to schedule encrypted backups and keep-alive checks.</p><button className="primary" type="button" onClick={onAdd}>Add project</button></div> : <>
@@ -29,12 +31,14 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
           const backupRunning = busyJob === `backup:${project.id}` || project.status === 'running'
           const keepAliveRunning = busyJob === `keep_alive:${project.id}`
           const latestActivity = activities.find(item => item.projectId === project.id)
+          const editing = editingId === project.id
           return <article className={`project-record ${project.status}`} key={project.id}>
             <header className="project-record-header">
-              <div className="project-cell"><div className={`project-logo ${project.status}`} aria-hidden="true">⌁</div><div className="project-identity"><div className="identity-title"><strong title={project.id}>{project.id}</strong><span className={`plan-badge ${project.plan}`}>{project.plan}</span></div><small title={`${project.ref} · ${project.region}`}>{project.ref} · {project.region}</small></div></div>
+              <div className="project-cell"><div className={`project-logo ${project.status}`} aria-hidden="true">⌁</div><div className="project-identity"><div className="identity-title"><strong title={project.displayName}>{project.displayName}</strong><span className={`environment-tag ${project.environment}`}>{project.environment}</span><span className={`plan-badge ${project.plan}`}>{project.plan}</span></div>{project.notes && <small className="project-note" title={project.notes}>{project.notes}</small>}<small className="project-reference" title={`${project.ref} · ${project.region}`}>{project.ref} · {project.region}</small></div></div>
               <span className={`status ${project.status}`}><b aria-hidden="true"/>{statusLabel[project.status]}</span>
-              <div className="row-actions"><button className="quiet action-button" type="button" disabled={Boolean(busyJob) || !project.enabled} aria-label={`Run keep-alive for ${project.id}`} onClick={() => onRunKeepAlive(project.id)}><Activity size={13} aria-hidden="true"/>{keepAliveRunning ? 'Checking…' : 'Ping'}</button><button className="primary compact-action" type="button" disabled={Boolean(busyJob) || !project.enabled} aria-label={`Run backup for ${project.id}`} onClick={() => onRunBackup(project.id)}><Play size={13} aria-hidden="true"/>{backupRunning ? 'Running…' : project.lastBackupAt ? 'Back up now' : 'Run first backup'}</button></div>
+              <div className="row-actions"><button className="quiet action-button edit-action" type="button" aria-expanded={editing} aria-controls={`edit-${project.id}`} onClick={() => setEditingId(editing ? null : project.id)}>{editing ? <X size={13} aria-hidden="true"/> : <Pencil size={13} aria-hidden="true"/>}{editing ? 'Close' : 'Edit'}</button><button className="quiet action-button" type="button" disabled={Boolean(busyJob) || !project.enabled || project.plan !== 'free'} aria-label={`Run keep-alive for ${project.id}`} onClick={() => onRunKeepAlive(project.id)}><Activity size={13} aria-hidden="true"/>{keepAliveRunning ? 'Checking…' : 'Ping'}</button><button className="primary compact-action" type="button" disabled={Boolean(busyJob) || !project.enabled} aria-label={`Run backup for ${project.id}`} onClick={() => onRunBackup(project.id)}><Play size={13} aria-hidden="true"/>{backupRunning ? 'Running…' : project.lastBackupAt ? 'Back up now' : 'Run first backup'}</button></div>
             </header>
+            {editing && <ProjectEditor project={project} onCancel={() => setEditingId(null)} onSave={async input => { await onUpdate(project.id, input); setEditingId(null) }}/>}
             <div className="project-facts">
               <ProjectFact icon={<Archive size={14}/>} label="Protection" value={project.backupMode === 'full_project' ? 'Full project' : 'Database only'} detail={scheduleLabel[project.backupSchedule] ?? project.backupSchedule}/>
               <ProjectFact icon={<CalendarClock size={14}/>} label="Last successful backup" value={project.lastBackupAt ? formatDateTime(project.lastBackupAt) : 'Not completed yet'} detail={project.nextBackupAt ? `Next scheduled ${formatDateTime(project.nextBackupAt)}` : 'Run the first backup to establish coverage'}/>
@@ -53,6 +57,59 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
       <div className="table-footer"><span>{projects.length} protected {projects.length === 1 ? 'project' : 'projects'}</span><span>Runner: <strong>Docker service</strong> <i aria-hidden="true"/></span></div>
     </>}
   </section>
+}
+
+const backupSchedules = [
+  { value: '0 */6 * * *', label: 'Every 6 hours' },
+  { value: '0 3 * * *', label: 'Daily at 03:00' },
+  { value: '0 3 * * 0', label: 'Sunday at 03:00' },
+]
+const keepAliveSchedules = [
+  { value: '0 9 * * *', label: 'Every day at 09:00' },
+  { value: '0 9 */3 * *', label: 'Every 3 days at 09:00' },
+  { value: '0 9 */5 * *', label: 'Every 5 days at 09:00' },
+]
+const scheduleAliases: Record<string, string> = { 'Every 6 hours': '0 */6 * * *', Daily: '0 3 * * *', Weekly: '0 3 * * 0', 'Every day': '0 9 * * *', 'Every 3 days': '0 9 */3 * *', 'Every 5 days': '0 9 */5 * *' }
+
+function ProjectEditor({ project, onCancel, onSave }: { project: Project; onCancel: () => void; onSave: (input: UpdateProjectInput) => Promise<void> }) {
+  const [input, setInput] = useState<UpdateProjectInput>({
+    displayName: project.displayName,
+    environment: project.environment,
+    notes: project.notes,
+    plan: project.plan,
+    backupMode: project.backupMode,
+    backupSchedule: scheduleAliases[project.backupSchedule] ?? project.backupSchedule,
+    keepAliveSchedule: project.plan === 'free' ? scheduleAliases[project.keepAliveSchedule] ?? project.keepAliveSchedule : null,
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const update = <Key extends keyof UpdateProjectInput>(key: Key, value: UpdateProjectInput[Key]) => {
+    setInput(current => ({ ...current, [key]: value }))
+    setError(null)
+  }
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (saving) return
+    if (input.displayName.trim().length < 2) return setError('Display name must contain at least two characters.')
+    setSaving(true)
+    try { await onSave({ ...input, displayName: input.displayName.trim(), notes: input.notes.trim(), keepAliveSchedule: input.plan === 'free' ? input.keepAliveSchedule : null }) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Project details could not be saved.'); setSaving(false) }
+  }
+
+  return <form className="project-editor" id={`edit-${project.id}`} onSubmit={submit}>
+    <div className="editor-intro"><div><span>Project profile</span><strong>Make this connection recognizable at a glance.</strong></div><small>Reference <code>{project.ref}</code> and region <code>{project.region}</code> are connection-derived and cannot be edited.</small></div>
+    <div className="editor-fields">
+      <label className="editor-field editor-name"><span>Display name</span><input value={input.displayName} maxLength={80} autoFocus onChange={event => update('displayName', event.target.value)} placeholder="Customer production"/></label>
+      <label className="editor-field"><span>Environment</span><select value={input.environment} onChange={event => update('environment', event.target.value as UpdateProjectInput['environment'])}><option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option></select></label>
+      <label className="editor-field editor-notes"><span>What does it power?</span><textarea value={input.notes} maxLength={240} rows={2} onChange={event => update('notes', event.target.value)} placeholder="Customer portal, billing data, and account authentication…"/><small>{input.notes.length}/240</small></label>
+      <label className="editor-field"><span>Supabase plan</span><select value={input.plan} onChange={event => { const plan = event.target.value as UpdateProjectInput['plan']; setInput(current => ({ ...current, plan, keepAliveSchedule: plan === 'free' ? current.keepAliveSchedule ?? '0 9 */3 * *' : null })) }}><option value="free">Free</option><option value="pro">Pro</option><option value="team">Team</option><option value="enterprise">Enterprise</option></select></label>
+      <label className="editor-field"><span>Protection mode</span><select value={input.backupMode} onChange={event => update('backupMode', event.target.value as UpdateProjectInput['backupMode'])}><option value="database">Database only</option><option value="full_project">Full project</option></select></label>
+      <label className="editor-field"><span>Backup schedule</span><select value={input.backupSchedule} onChange={event => update('backupSchedule', event.target.value)}>{backupSchedules.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+      <label className="editor-field"><span>Keep-alive schedule</span><select value={input.keepAliveSchedule ?? ''} disabled={input.plan !== 'free'} onChange={event => update('keepAliveSchedule', event.target.value || null)}>{input.plan !== 'free' && <option value="">Paid plans do not need keep-alive</option>}{keepAliveSchedules.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+    </div>
+    {error && <div className="editor-error" role="alert">{error}</div>}
+    <div className="editor-actions"><button className="quiet" type="button" onClick={onCancel} disabled={saving}>Cancel</button><button className="primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button></div>
+  </form>
 }
 
 function ProjectFact({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {

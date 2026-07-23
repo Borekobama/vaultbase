@@ -10,7 +10,7 @@ import { config } from './config.js'
 import { localPool } from './db.js'
 import { migrate } from './migrate.js'
 import { syncMirror } from './mirror.js'
-import { normalizeProjectId, parseSupabaseDatabaseUrl, projectInputSchema } from './project-input.js'
+import { normalizeProjectId, parseSupabaseDatabaseUrl, projectInputSchema, projectUpdateSchema } from './project-input.js'
 import { secretStore } from './secret-store.js'
 import { streamSnapshotDownload } from './snapshot-download.js'
 import { verifyResticSnapshot } from './verify-recovery.js'
@@ -119,13 +119,13 @@ app.get('/api/mirror/status', async (_request, response) => {
 })
 
 app.get('/api/projects', async (_request, response) => {
-  const result = await localPool.query(`SELECT id, project_ref, display_name, region, plan, enabled, backup_schedule, keep_alive_schedule, backup_mode, secret_ref, last_backup_at, measured_dump_bytes, status, created_at, updated_at FROM vaultbase.projects ORDER BY created_at DESC`)
+  const result = await localPool.query(`SELECT id, project_ref, display_name, environment, notes, region, plan, enabled, backup_schedule, keep_alive_schedule, backup_mode, secret_ref, last_backup_at, measured_dump_bytes, status, created_at, updated_at FROM vaultbase.projects ORDER BY created_at DESC`)
   response.json(result.rows)
 })
 
 app.get('/api/state', async (_request, response) => {
   const [projects, activities] = await Promise.all([
-    localPool.query(`SELECT p.id, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
+    localPool.query(`SELECT p.id, p.display_name, p.environment, p.notes, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
       p.created_at, p.last_backup_at, p.measured_dump_bytes storage_bytes, p.status, p.secret_ref secret_path, true secret_configured,
       stats.latest_backup_attempt_at, stats.snapshot_count, stats.successful_backup_count, stats.failed_backup_count
       FROM vaultbase.projects p
@@ -194,6 +194,28 @@ app.post('/api/projects', async (request, response, next) => {
     if (wroteSecret && secretRef) await secretStore.remove(secretRef).catch(() => undefined)
     if (error instanceof z.ZodError) return response.status(400).json({ error: 'Invalid project details.', issues: error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })) })
     if (error instanceof Error && (error.message.includes('connection string') || error.message.includes('Session Pooler') || error.message.includes('project reference') || error.message.includes('[YOUR-PASSWORD]'))) return response.status(400).json({ error: error.message })
+    next(error)
+  }
+})
+
+app.patch('/api/projects/:id', async (request, response, next) => {
+  try {
+    const id = normalizeProjectId(request.params.id)
+    const input = projectUpdateSchema.parse(request.body)
+    const result = await localPool.query(`UPDATE vaultbase.projects
+      SET display_name=$2, environment=$3, notes=$4, plan=$5, backup_schedule=$6,
+        keep_alive_schedule=$7, backup_mode=$8, updated_at=now()
+      WHERE id=$1
+      RETURNING id, project_ref, display_name, environment, notes, region, plan, enabled,
+        backup_schedule, keep_alive_schedule, backup_mode, status, created_at, updated_at`,
+      [id, input.displayName, input.environment, input.notes, input.plan, input.backupSchedule, input.keepAliveSchedule, input.backupMode])
+    if (!result.rowCount) return response.status(404).json({ error: 'Project not found.' })
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata)
+      VALUES ('api-token', 'project.updated', 'project', $1, $2)`,
+      [id, { fields: ['display_name', 'environment', 'notes', 'plan', 'backup_schedule', 'keep_alive_schedule', 'backup_mode'] }])
+    response.json(result.rows[0])
+  } catch (error) {
+    if (error instanceof z.ZodError) return response.status(400).json({ error: 'Invalid project details.', issues: error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })) })
     next(error)
   }
 })

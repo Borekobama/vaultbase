@@ -1,5 +1,5 @@
 import { seedState } from '../data/seed'
-import type { ActivityItem, NewProjectInput, Project, RegistryState } from '../domain'
+import type { ActivityItem, NewProjectInput, Project, RegistryState, UpdateProjectInput } from '../domain'
 import { normalizeProjectId } from '../lib/validation'
 import { strToU8, zipSync } from 'fflate'
 
@@ -16,6 +16,9 @@ function readState(): RegistryState {
     if (parsed.activities.some(activity => !activity || typeof activity.id !== 'string' || typeof activity.projectId !== 'string')) throw new Error('Invalid activity metadata')
     parsed.projects = parsed.projects.map(project => ({
       ...project,
+      displayName: project.displayName ?? project.id,
+      environment: project.environment ?? 'production',
+      notes: project.notes ?? '',
       plan: project.plan ?? 'free',
       backupMode: project.backupMode ?? 'database',
       createdAt: project.createdAt ?? new Date().toISOString(),
@@ -57,6 +60,9 @@ const mockRegistryService = {
     // never persisted. A production API must encrypt it server-side with sops/age or Vault.
     const project: Project = {
       id,
+      displayName: input.name.trim(),
+      environment: 'production',
+      notes: '',
       ref,
       region,
       plan: input.plan,
@@ -77,6 +83,16 @@ const mockRegistryService = {
       secretConfigured: true,
     }
     state.projects.unshift(project)
+    writeState(state)
+    return clone(state)
+  },
+
+  async updateProject(projectId: string, input: UpdateProjectInput): Promise<RegistryState> {
+    await delay(240)
+    const state = readState()
+    const project = state.projects.find(item => item.id === projectId)
+    if (!project) throw new Error('Project not found. Refresh the registry and try again.')
+    Object.assign(project, input, { keepAliveSchedule: input.keepAliveSchedule ?? 'Disabled' })
     writeState(state)
     return clone(state)
   },
@@ -151,7 +167,8 @@ const mockRegistryService = {
 function mapState(payload: { projects: Array<Record<string, unknown>>; activities: Array<Record<string, unknown>> }): RegistryState {
   return {
     projects: payload.projects.map(project => ({
-      id: String(project.id), ref: String(project.ref), region: String(project.region), plan: project.plan as Project['plan'], enabled: Boolean(project.enabled),
+      id: String(project.id), displayName: String(project.display_name ?? project.id), environment: (project.environment ?? 'production') as Project['environment'],
+      notes: String(project.notes ?? ''), ref: String(project.ref), region: String(project.region), plan: project.plan as Project['plan'], enabled: Boolean(project.enabled),
       backupMode: project.backup_mode as Project['backupMode'],
       backupSchedule: String(project.backup_schedule), keepAliveSchedule: project.keep_alive_schedule ? String(project.keep_alive_schedule) : 'Disabled',
       createdAt: String(project.created_at), nextBackupAt: project.next_backup_at ? String(project.next_backup_at) : null,
@@ -182,6 +199,10 @@ const productionRegistryService = {
     const schedules: Record<string, string> = { 'Every 6 hours': '0 */6 * * *', Daily: '0 3 * * *', Weekly: '0 3 * * 0' }
     const keepAlive: Record<string, string> = { 'Every day': '0 9 * * *', 'Every 3 days': '0 9 */3 * *', 'Every 5 days': '0 9 */5 * *' }
     await api('/api/projects', { method: 'POST', body: JSON.stringify({ displayName: input.name, plan: input.plan, databaseUrl: input.databaseUrl, backupSchedule: schedules[input.backupSchedule] ?? input.backupSchedule, keepAliveSchedule: input.plan === 'free' ? keepAlive[input.keepAliveSchedule] ?? input.keepAliveSchedule : null, backupMode: input.backupMode }) })
+    return this.load()
+  },
+  async updateProject(projectId: string, input: UpdateProjectInput) {
+    await api(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: JSON.stringify(input) })
     return this.load()
   },
   async runBackup(projectId: string) {

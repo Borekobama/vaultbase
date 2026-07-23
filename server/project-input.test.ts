@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSupabaseDatabaseUrl, projectInputSchema } from './project-input'
+import { parseSupabaseDatabaseUrl, projectInputSchema, projectUpdateSchema } from './project-input'
 
 describe('Supabase database connection parsing', () => {
   it('derives the project reference and region from a session pooler URL', () => {
@@ -38,5 +38,26 @@ describe('Supabase database connection parsing', () => {
       backupSchedule: '0 */6 * * *', keepAliveSchedule: '0 9 */3 * *', backupMode: 'database',
     })
     expect(result.success).toBe(true)
+  })
+
+  it('validates editable project profile details', () => {
+    expect(projectUpdateSchema.safeParse({
+      displayName: 'Customer Production',
+      environment: 'production',
+      notes: 'Customer accounts and billing.',
+      plan: 'free',
+      backupSchedule: '0 3 * * *',
+      keepAliveSchedule: '0 9 */3 * *',
+      backupMode: 'full_project',
+    }).success).toBe(true)
+    expect(projectUpdateSchema.safeParse({
+      displayName: 'Customer Production',
+      environment: 'production',
+      notes: '',
+      plan: 'pro',
+      backupSchedule: '0 3 * * *',
+      keepAliveSchedule: '0 9 */3 * *',
+      backupMode: 'database',
+    }).success).toBe(false)
   })
 })

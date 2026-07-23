@@ -1,12 +1,16 @@
 export type View = 'Overview' | 'Projects' | 'Planner' | 'Secrets' | 'Activity' | 'Settings'
 export type SupabasePlan = 'free' | 'pro' | 'team' | 'enterprise'
 export type BackupMode = 'database' | 'full_project'
+export type ProjectEnvironment = 'production' | 'staging' | 'development'
 export type ProjectStatus = 'healthy' | 'warning' | 'pending' | 'running' | 'failed'
 export type JobType = 'backup' | 'keep_alive' | 'retention'
 export type ActivityStatus = 'success' | 'running' | 'warning' | 'failed'
 
 export interface Project {
   id: string
+  displayName: string
+  environment: ProjectEnvironment
+  notes: string
   ref: string
   region: string
   plan: SupabasePlan
@@ -50,4 +54,14 @@ export interface NewProjectInput {
   databaseUrl: string
   backupSchedule: string
   keepAliveSchedule: string
+}
+
+export interface UpdateProjectInput {
+  displayName: string
+  environment: ProjectEnvironment
+  notes: string
+  plan: SupabasePlan
+  backupMode: BackupMode
+  backupSchedule: string
+  keepAliveSchedule: string | null
 }

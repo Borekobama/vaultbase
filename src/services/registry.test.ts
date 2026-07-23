@@ -19,6 +19,20 @@ describe('registry service', () => {
     await expect(registryService.addProject(project)).rejects.toThrow(/already exists/i)
   })
 
+  it('updates the human-readable project profile without changing its id', async () => {
+    await registryService.addProject(project)
+    const state = await registryService.updateProject('test-project', {
+      displayName: 'Payments Production',
+      environment: 'production',
+      notes: 'Billing and subscription records.',
+      plan: 'pro',
+      backupMode: 'full_project',
+      backupSchedule: '0 */6 * * *',
+      keepAliveSchedule: null,
+    })
+    expect(state.projects[0]).toMatchObject({ id: 'test-project', displayName: 'Payments Production', environment: 'production', notes: 'Billing and subscription records.' })
+  })
+
   it('records completed backups', async () => {
     await registryService.addProject(project)
     const state = await registryService.runBackup('test-project')

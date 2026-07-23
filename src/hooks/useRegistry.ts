@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { NewProjectInput, RegistryState } from '../domain'
+import type { NewProjectInput, RegistryState, UpdateProjectInput } from '../domain'
 import { registryService } from '../services/registry'
 
 const initialState: RegistryState = { projects: [], activities: [] }
@@ -49,6 +49,7 @@ export function useRegistry() {
     clearError: () => setError(null),
     refresh,
     addProject: (input: NewProjectInput) => run(() => registryService.addProject(input)),
+    updateProject: (projectId: string, input: UpdateProjectInput) => run(() => registryService.updateProject(projectId, input)),
     runBackup: (projectId: string) => run(() => registryService.runBackup(projectId)),
     runKeepAlive: (projectId: string) => run(() => registryService.runKeepAlive(projectId)),
     downloadBackup: (activityId: string) => registryService.downloadBackup(activityId),
