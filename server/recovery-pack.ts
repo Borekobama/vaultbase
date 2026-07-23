@@ -10,6 +10,7 @@ import { syncStorageObjects } from './storage-sync.js'
 import { withJobLock } from './job-lock.js'
 import { createWorkDirectory } from './work-directory.js'
 import { postgresSslEnvironment } from './database-ssl.js'
+import { syncManagementConfiguration } from './management-sync.js'
 
 const excludedManagedSchemas = ['auth', 'storage', 'extensions', 'graphql', 'graphql_public', 'supabase_functions', 'realtime', '_analytics', '_realtime']
 
@@ -55,6 +56,7 @@ async function createRecoveryPackUnlocked(projectId: string) {
 
   try {
     let storageObjects = { configured: false, objects: 0 }
+    let managementConfiguration = { configured: false, captured: 0, warnings: [] as string[] }
     const databaseUrl = await secretStore.get(project.secret_ref)
     const env = postgresEnvironment(databaseUrl)
     const pgDump = join(config.PG_BIN_DIRECTORY, 'pg_dump')
@@ -75,6 +77,7 @@ async function createRecoveryPackUnlocked(projectId: string) {
       await runProcess(pgDump, ['--schema-only', '--schema=auth', '--schema=storage', '--no-owner', '--no-privileges'], { env, stdoutFile: join(configurationDirectory, 'managed-schema.sql') })
       await runProcess(pgDump, ['--schema-only', '--schema=extensions', '--no-owner', '--no-privileges'], { env, stdoutFile: join(configurationDirectory, 'extensions.sql') })
       storageObjects = await syncStorageObjects(projectId, join(storageDirectory, 'objects'))
+      managementConfiguration = await syncManagementConfiguration(projectId, project.project_ref, join(configurationDirectory, 'management-api.json'))
     }
 
     const files: Array<{ path: string; bytes: number; sha256: string }> = []
@@ -95,10 +98,12 @@ async function createRecoveryPackUnlocked(projectId: string) {
       storageMetadata: project.backup_mode === 'full_project' && paths.has('storage/metadata.dump'),
       storageObjects: project.backup_mode === 'full_project' && storageObjects.configured,
       configuration: project.backup_mode === 'full_project' && paths.has('configuration/managed-schema.sql') && paths.has('configuration/extensions.sql'),
+      managementApi: project.backup_mode === 'full_project' && managementConfiguration.captured > 0 && paths.has('configuration/management-api.json'),
     }
     const warnings = [
       ...(!coverage.storageObjects && project.backup_mode === 'full_project' ? ['Storage object bodies require Storage S3 credentials.'] : []),
-      ...(project.backup_mode === 'full_project' ? ['Management API configuration is not included yet.'] : []),
+      ...(!coverage.managementApi && project.backup_mode === 'full_project' ? ['Management API configuration requires a read-scoped access token.'] : []),
+      ...managementConfiguration.warnings,
     ]
     const manifest = { version: 2, snapshotId, projectId, projectRef: project.project_ref, mode: project.backup_mode, createdAt: startedAt.toISOString(), files, coverage, storageObjectCount: storageObjects.objects, complete: project.backup_mode === 'database' || warnings.length === 0, warnings }
     await writeFile(join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })

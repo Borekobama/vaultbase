@@ -1,5 +1,5 @@
 import { seedState } from '../data/seed'
-import type { ActivityItem, LatestRecoveryPoint, NewProjectInput, Project, RecoveryCoverage, RegistryState, RestoreDrill, UpdateProjectInput } from '../domain'
+import type { ActivityItem, LatestRecoveryPoint, NewProjectInput, Project, RecoveryCoverage, RegistryState, RestoreDrill, StorageCredentialsInput, UpdateProjectInput } from '../domain'
 import { normalizeProjectId } from '../lib/validation'
 import { strToU8, zipSync } from 'fflate'
 
@@ -28,6 +28,7 @@ function readState(): RegistryState {
       successfulBackupCount: project.successfulBackupCount ?? (project.lastBackupAt ? 1 : 0),
       failedBackupCount: project.failedBackupCount ?? 0,
       storageSecretConfigured: project.storageSecretConfigured ?? false,
+      managementSecretConfigured: project.managementSecretConfigured ?? false,
       latestRecoveryPoint: project.latestRecoveryPoint ?? null,
       restoreDrills: project.restoreDrills ?? [],
     }))
@@ -85,6 +86,7 @@ const mockRegistryService = {
       secretPath: `supabase/${id}/database`,
       secretConfigured: true,
       storageSecretConfigured: false,
+      managementSecretConfigured: false,
       latestRecoveryPoint: null,
       restoreDrills: [],
     }
@@ -99,6 +101,33 @@ const mockRegistryService = {
     const project = state.projects.find(item => item.id === projectId)
     if (!project) throw new Error('Project not found. Refresh the registry and try again.')
     Object.assign(project, input, { keepAliveSchedule: input.keepAliveSchedule ?? 'Disabled' })
+    writeState(state)
+    return clone(state)
+  },
+
+  async updateDatabaseSecret(projectId: string, _databaseUrl: string): Promise<RegistryState> {
+    const state = readState()
+    const project = state.projects.find(item => item.id === projectId)
+    if (!project) throw new Error('Project not found.')
+    project.secretConfigured = true
+    writeState(state)
+    return clone(state)
+  },
+
+  async updateStorageSecret(projectId: string, _input: StorageCredentialsInput): Promise<RegistryState> {
+    const state = readState()
+    const project = state.projects.find(item => item.id === projectId)
+    if (!project) throw new Error('Project not found.')
+    project.storageSecretConfigured = true
+    writeState(state)
+    return clone(state)
+  },
+
+  async updateManagementSecret(projectId: string, _accessToken: string): Promise<RegistryState> {
+    const state = readState()
+    const project = state.projects.find(item => item.id === projectId)
+    if (!project) throw new Error('Project not found.')
+    project.managementSecretConfigured = true
     writeState(state)
     return clone(state)
   },
@@ -143,6 +172,7 @@ const mockRegistryService = {
         storageMetadata: project.backupMode === 'full_project',
         storageObjects: project.backupMode === 'full_project' && project.storageSecretConfigured,
         configuration: project.backupMode === 'full_project',
+        managementApi: project.backupMode === 'full_project' && project.managementSecretConfigured,
       },
     }
     state.activities.unshift(activity)
@@ -234,6 +264,7 @@ function mapRecoveryPoint(project: Record<string, unknown>): LatestRecoveryPoint
       storageMetadata: explicit.storageMetadata ?? paths.has('storage/metadata.dump'),
       storageObjects: explicit.storageObjects ?? paths.has('storage/objects/manifest.json'),
       configuration: explicit.configuration ?? (paths.has('configuration/managed-schema.sql') && paths.has('configuration/extensions.sql')),
+      managementApi: explicit.managementApi ?? paths.has('configuration/management-api.json'),
     },
   }
 }
@@ -265,7 +296,7 @@ function mapState(payload: { projects: Array<Record<string, unknown>>; activitie
       storageBytes: Number(project.storage_bytes), snapshotCount: Number(project.snapshot_count), successfulBackupCount: Number(project.successful_backup_count),
       failedBackupCount: Number(project.failed_backup_count), status: project.status as Project['status'],
       secretPath: String(project.secret_path), secretConfigured: Boolean(project.secret_configured),
-      storageSecretConfigured: Boolean(project.storage_secret_configured), latestRecoveryPoint: mapRecoveryPoint(project),
+      storageSecretConfigured: Boolean(project.storage_secret_configured), managementSecretConfigured: Boolean(project.management_secret_configured), latestRecoveryPoint: mapRecoveryPoint(project),
       restoreDrills: mapRestoreDrills(project),
     })),
     activities: payload.activities.map(activity => ({
@@ -294,6 +325,18 @@ const productionRegistryService = {
   },
   async updateProject(projectId: string, input: UpdateProjectInput) {
     await api(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: JSON.stringify(input) })
+    return this.load()
+  },
+  async updateDatabaseSecret(projectId: string, databaseUrl: string) {
+    await api(`/api/projects/${encodeURIComponent(projectId)}/secrets/database`, { method: 'PUT', body: JSON.stringify({ databaseUrl }) })
+    return this.load()
+  },
+  async updateStorageSecret(projectId: string, input: StorageCredentialsInput) {
+    await api(`/api/projects/${encodeURIComponent(projectId)}/secrets/storage`, { method: 'PUT', body: JSON.stringify(input) })
+    return this.load()
+  },
+  async updateManagementSecret(projectId: string, accessToken: string) {
+    await api(`/api/projects/${encodeURIComponent(projectId)}/secrets/management`, { method: 'PUT', body: JSON.stringify({ accessToken }) })
     return this.load()
   },
   async runBackup(projectId: string) {

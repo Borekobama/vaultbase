@@ -2,6 +2,7 @@ import express from 'express'
 import helmet from 'helmet'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { Client } from 'pg'
 import { Cron } from 'croner'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { dirname, join } from 'node:path'
@@ -18,6 +19,9 @@ import { runKeepAlive } from './keep-alive.js'
 import { JobAlreadyRunningError } from './job-lock.js'
 import { cleanupStaleWorkDirectories } from './work-directory.js'
 import { enqueueBackup, getJob, resumeManualJobs } from './manual-jobs.js'
+import { verifiedDatabaseSsl, withoutSslQueryParameters } from './database-ssl.js'
+import { validateManagementCredentials } from './management-sync.js'
+import { type StorageSecret, validateStorageCredentials } from './storage-sync.js'
 
 const app = express()
 const sessions = new Map<string, number>()
@@ -128,6 +132,7 @@ app.get('/api/state', async (_request, response) => {
     localPool.query(`SELECT p.id, p.display_name, p.environment, p.notes, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
       p.created_at, p.last_backup_at, p.measured_dump_bytes storage_bytes, p.status, p.secret_ref secret_path, true secret_configured,
       EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='storage_s3') storage_secret_configured,
+      EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='management_api') management_secret_configured,
       stats.latest_backup_attempt_at, stats.snapshot_count, stats.successful_backup_count, stats.failed_backup_count,
       latest.id latest_snapshot_id, latest.status latest_snapshot_status, latest.components latest_snapshot_components,
       latest.started_at latest_snapshot_started_at, latest.completed_at latest_snapshot_completed_at,
@@ -165,18 +170,75 @@ app.get('/api/state', async (_request, response) => {
   })
 })
 
+app.put('/api/projects/:id/secrets/database', async (request, response, next) => {
+  try {
+    const id = normalizeProjectId(request.params.id)
+    const { databaseUrl } = z.object({ databaseUrl: z.string().trim().min(20).max(2048) }).parse(request.body)
+    const parsed = parseSupabaseDatabaseUrl(databaseUrl)
+    const project = await localPool.query('SELECT project_ref, secret_ref FROM vaultbase.projects WHERE id=$1', [id])
+    if (!project.rowCount) return response.status(404).json({ error: 'Project not found.' })
+    if (project.rows[0].project_ref !== parsed.projectRef) return response.status(400).json({ error: 'That connection string belongs to a different Supabase project.' })
+    const hostname = new URL(databaseUrl).hostname
+    const client = new Client({
+      connectionString: withoutSslQueryParameters(databaseUrl),
+      ssl: ['localhost', '127.0.0.1'].includes(hostname) ? false : verifiedDatabaseSsl(),
+      connectionTimeoutMillis: 15_000,
+      query_timeout: 15_000,
+      application_name: 'vaultbase-credential-check',
+    })
+    try {
+      await client.connect()
+      await client.query('SELECT current_user')
+    } finally { await client.end().catch(() => undefined) }
+    await secretStore.put(project.rows[0].secret_ref, databaseUrl)
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token','secret.database.updated','project',$1)`, [id])
+    response.status(204).end()
+  } catch (error) {
+    if (error instanceof z.ZodError) return response.status(400).json({ error: 'Enter a valid database connection string.' })
+    if (error instanceof Error && (error.message.includes('connection string') || error.message.includes('Session Pooler') || error.message.includes('project reference'))) return response.status(400).json({ error: error.message })
+    if (error instanceof Error) return response.status(400).json({ error: `The database credential could not be verified: ${error.message}` })
+    next(error)
+  }
+})
+
 app.put('/api/projects/:id/secrets/storage', async (request, response, next) => {
   try {
     const id = normalizeProjectId(request.params.id)
-    const input = z.object({ endpoint: z.string().url().startsWith('https://'), accessKeyId: z.string().min(8).max(256), secretAccessKey: z.string().min(16).max(512) }).parse(request.body)
-    const exists = await localPool.query('SELECT 1 FROM vaultbase.projects WHERE id=$1', [id])
+    const input: StorageSecret = z.object({ endpoint: z.string().url().startsWith('https://'), region: z.string().trim().min(2).max(80), accessKeyId: z.string().min(8).max(256), secretAccessKey: z.string().min(16).max(512) }).parse(request.body)
+    const exists = await localPool.query('SELECT project_ref FROM vaultbase.projects WHERE id=$1', [id])
     if (!exists.rowCount) return response.status(404).json({ error: 'Project not found.' })
+    const endpoint = new URL(input.endpoint)
+    if (!endpoint.hostname.startsWith(`${exists.rows[0].project_ref}.storage.supabase.co`)) return response.status(400).json({ error: 'That S3 endpoint belongs to a different Supabase project.' })
+    await validateStorageCredentials(input)
     const reference = `supabase/${id}/storage-s3`
     await secretStore.put(reference, JSON.stringify(input))
     await localPool.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'storage_s3',$2) ON CONFLICT (project_id,kind) DO UPDATE SET secret_ref=excluded.secret_ref, configured_at=now()`, [id, reference])
     await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token','secret.storage.updated','project',$1)`, [id])
     response.status(204).end()
-  } catch (error) { if (error instanceof z.ZodError) return response.status(400).json({ error: 'Invalid Storage S3 credentials.' }); next(error) }
+  } catch (error) {
+    if (error instanceof z.ZodError) return response.status(400).json({ error: 'Invalid Storage S3 credentials.' })
+    if (error instanceof Error) return response.status(400).json({ error: `The Storage S3 credentials could not be verified: ${error.message}` })
+    next(error)
+  }
+})
+
+app.put('/api/projects/:id/secrets/management', async (request, response, next) => {
+  try {
+    const id = normalizeProjectId(request.params.id)
+    const { accessToken } = z.object({ accessToken: z.string().trim().min(20).max(2048) }).parse(request.body)
+    const project = await localPool.query('SELECT project_ref FROM vaultbase.projects WHERE id=$1', [id])
+    if (!project.rowCount) return response.status(404).json({ error: 'Project not found.' })
+    await validateManagementCredentials(project.rows[0].project_ref, accessToken)
+    const reference = `supabase/${id}/management-api`
+    await secretStore.put(reference, accessToken)
+    await localPool.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'management_api',$2) ON CONFLICT (project_id,kind) DO UPDATE SET secret_ref=excluded.secret_ref, configured_at=now()`, [id, reference])
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token','secret.management.updated','project',$1)`, [id])
+    response.status(204).end()
+  } catch (error) {
+    if (error instanceof z.ZodError) return response.status(400).json({ error: 'Enter a valid Management API access token.' })
+    if (error instanceof Error) return response.status(400).json({ error: `The Management API token could not be verified: ${error.message}` })
+    next(error)
+  }
 })
 
 app.post('/api/projects', async (request, response, next) => {

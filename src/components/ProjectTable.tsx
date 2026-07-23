@@ -1,4 +1,4 @@
-import { Activity, Archive, CalendarClock, Check, Database, FlaskConical, HardDrive, Minus, Pencil, Play, RotateCw, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { Activity, Archive, CalendarClock, Check, ChevronDown, Database, FlaskConical, HardDrive, Minus, Pencil, Play, RotateCw, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { type FormEvent, type ReactNode, useState } from 'react'
 import type { ActivityItem, Project, RecoveryCoverage, UpdateProjectInput } from '../domain'
 import { formatBytes, formatDateTime } from '../lib/format'
@@ -24,6 +24,7 @@ const scheduleLabel: Record<string, string> = {
 
 export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRunKeepAlive, onVerifyRecoveryPoint, onUpdate, onRefresh, onAdd }: ProjectTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   return <section className="panel" aria-labelledby="projects-title">
     <div className="panel-heading"><div><h2 id="projects-title">Recovery ledger</h2><p>Backup coverage, recovery points, and the next scheduled action</p></div><button className="quiet button-with-icon" type="button" onClick={onRefresh}><RotateCw size={14} aria-hidden="true"/>Refresh</button></div>
     {projects.length === 0 ? <div className="empty-state"><Database size={24} aria-hidden="true"/><h3>No projects connected</h3><p>Add a Supabase project to schedule encrypted backups and keep-alive checks.</p><button className="primary" type="button" onClick={onAdd}>Add project</button></div> : <>
@@ -34,12 +35,15 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
           const verifyRunning = busyJob === `verify:${project.id}`
           const latestActivity = activities.find(item => item.projectId === project.id)
           const editing = editingId === project.id
+          const expanded = expandedId === project.id
           return <article className={`project-record ${project.status}`} key={project.id}>
             <header className="project-record-header">
-              <div className="project-cell"><div className={`project-logo ${project.status}`} aria-hidden="true">⌁</div><div className="project-identity"><div className="identity-title"><strong title={project.displayName}>{project.displayName}</strong><span className={`environment-tag ${project.environment}`}>{project.environment}</span><span className={`plan-badge ${project.plan}`}>{project.plan}</span></div>{project.notes && <small className="project-note" title={project.notes}>{project.notes}</small>}<small className="project-reference" title={`${project.ref} · ${project.region}`}>{project.ref} · {project.region}</small></div></div>
+              <div className="project-cell"><div className={`project-logo ${project.status}`} aria-hidden="true">⌁</div><div className="project-identity"><div className="identity-title"><strong title={project.displayName}>{project.displayName}</strong><span className={`environment-tag ${project.environment}`}>{project.environment}</span><span className={`plan-badge ${project.plan}`}>{project.plan}</span></div></div></div>
               <span className={`status ${project.status}`}><b aria-hidden="true"/>{statusLabel[project.status]}</span>
-              <div className="row-actions"><button className="quiet action-button edit-action" type="button" aria-expanded={editing} aria-controls={`edit-${project.id}`} onClick={() => setEditingId(editing ? null : project.id)}>{editing ? <X size={13} aria-hidden="true"/> : <Pencil size={13} aria-hidden="true"/>}{editing ? 'Close' : 'Edit'}</button><button className="quiet action-button" type="button" disabled={Boolean(busyJob) || !project.enabled || project.plan !== 'free'} aria-label={`Run keep-alive for ${project.id}`} onClick={() => onRunKeepAlive(project.id)}><Activity size={13} aria-hidden="true"/>{keepAliveRunning ? 'Checking…' : 'Ping'}</button><button className="primary compact-action" type="button" disabled={Boolean(busyJob) || !project.enabled} aria-label={`Run backup for ${project.id}`} onClick={() => onRunBackup(project.id)}><Play size={13} aria-hidden="true"/>{backupRunning ? 'Running…' : project.lastBackupAt ? 'Back up now' : 'Run first backup'}</button></div>
+              <div className="row-actions"><button className="quiet action-button details-action" type="button" aria-expanded={expanded} aria-controls={`details-${project.id}`} onClick={() => { setExpandedId(expanded ? null : project.id); if (expanded) setEditingId(null) }}><ChevronDown className={expanded ? 'rotated' : ''} size={14} aria-hidden="true"/>{expanded ? 'Hide' : 'Details'}</button><button className="quiet action-button edit-action" type="button" aria-expanded={editing} aria-controls={`edit-${project.id}`} onClick={() => { setExpandedId(project.id); setEditingId(editing ? null : project.id) }}>{editing ? <X size={13} aria-hidden="true"/> : <Pencil size={13} aria-hidden="true"/>}{editing ? 'Close' : 'Edit'}</button><button className="quiet action-button" type="button" disabled={Boolean(busyJob) || !project.enabled || project.plan !== 'free'} aria-label={`Run keep-alive for ${project.id}`} onClick={() => onRunKeepAlive(project.id)}><Activity size={13} aria-hidden="true"/>{keepAliveRunning ? 'Checking…' : 'Ping'}</button><button className="primary compact-action" type="button" disabled={Boolean(busyJob) || !project.enabled} aria-label={`Run backup for ${project.id}`} onClick={() => onRunBackup(project.id)}><Play size={13} aria-hidden="true"/>{backupRunning ? 'Running…' : project.lastBackupAt ? 'Back up now' : 'Run first backup'}</button></div>
             </header>
+            {expanded && <div id={`details-${project.id}`} className="project-record-details">
+            <div className="project-profile-summary"><div><span>Project reference</span><code>{project.ref}</code></div><div><span>Region</span><strong>{project.region}</strong></div><div className="project-profile-note"><span>Notes</span><strong>{project.notes || 'No notes added'}</strong></div></div>
             {editing && <ProjectEditor project={project} onCancel={() => setEditingId(null)} onSave={async input => { await onUpdate(project.id, input); setEditingId(null) }}/>}
             <div className="project-facts">
               <ProjectFact icon={<Archive size={14}/>} label="Protection" value={project.backupMode === 'full_project' ? 'Full project' : 'Database only'} detail={scheduleLabel[project.backupSchedule] ?? project.backupSchedule}/>
@@ -54,6 +58,7 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
               <time dateTime={latestActivity?.occurredAt ?? project.createdAt}>{formatDateTime(latestActivity?.occurredAt ?? project.createdAt)}</time>
               <span className="keep-alive-policy">Keep alive: {project.keepAliveSchedule}</span>
             </footer>
+            </div>}
           </article>
         })}
       </div>
@@ -69,6 +74,7 @@ const coverageItems: Array<{ key: keyof RecoveryCoverage; label: string; fullPro
   { key: 'storageMetadata', label: 'Storage catalog', fullProjectOnly: true },
   { key: 'storageObjects', label: 'Object files', fullProjectOnly: true },
   { key: 'configuration', label: 'Configuration', fullProjectOnly: true },
+  { key: 'managementApi', label: 'Platform config', fullProjectOnly: true },
 ]
 
 function RecoveryReadiness({ project, verifying, disabled, onVerify }: { project: Project; verifying: boolean; disabled: boolean; onVerify: () => void }) {
@@ -83,7 +89,8 @@ function RecoveryReadiness({ project, verifying, disabled, onVerify }: { project
         {coverageItems.map(item => {
           const included = !item.fullProjectOnly || project.backupMode === 'full_project'
           const covered = Boolean(point?.coverage[item.key])
-          const detail = !included ? 'Not in mode' : covered ? 'Captured' : item.key === 'storageObjects' && !project.storageSecretConfigured ? 'Credentials needed' : 'Missing'
+          const credentialsNeeded = item.key === 'storageObjects' ? !project.storageSecretConfigured : item.key === 'managementApi' ? !project.managementSecretConfigured : false
+          const detail = !included ? 'Not in mode' : covered ? 'Captured' : credentialsNeeded ? 'Credentials needed' : 'Missing'
           return <div className={`coverage-item ${!included ? 'excluded' : covered ? 'covered' : 'missing'}`} key={item.key}><span className="coverage-mark" aria-hidden="true">{!included ? <Minus size={12}/> : covered ? <Check size={12}/> : <X size={12}/>}</span><strong>{item.label}</strong><small>{detail}</small></div>
         })}
       </div>

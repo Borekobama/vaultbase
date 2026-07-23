@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, Bell, Database, HardDrive, Plus, ShieldCheck, X } from 'lucide-react'
-import type { NewProjectInput, UpdateProjectInput, View } from './domain'
+import type { NewProjectInput, StorageCredentialsInput, UpdateProjectInput, View } from './domain'
 import { AddProjectDialog } from './components/AddProjectDialog'
 import { ActivityPage, PlannerPage, SecretsPage, SettingsPage } from './components/Pages'
 import { ProjectTable } from './components/ProjectTable'
@@ -132,7 +132,7 @@ export default function App() {
           {(view === 'Overview' || view === 'Projects') && (
             <ProjectTable projects={registry.projects} activities={registry.activities} busyJob={busyJob} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onVerifyRecoveryPoint={verifyRecoveryPoint} onUpdate={updateProject} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
           )}
-          {view === 'Planner' && <PlannerPage projects={registry.projects}/>} {view === 'Secrets' && <SecretsPage projects={registry.projects}/>} {view === 'Activity' && <ActivityPage activities={registry.activities} downloadingId={downloadingId} onDownload={downloadBackup}/>} {view === 'Settings' && <SettingsPage/>}
+          {view === 'Planner' && <PlannerPage projects={registry.projects}/>} {view === 'Secrets' && <SecretsPage projects={registry.projects} onUpdateDatabase={async (id, value) => { await registry.updateDatabaseSecret(id, value); notify('Database credential verified and rotated.') }} onUpdateStorage={async (id, value: StorageCredentialsInput) => { await registry.updateStorageSecret(id, value); notify('Storage S3 credentials verified and saved.') }} onUpdateManagement={async (id, value) => { await registry.updateManagementSecret(id, value); notify('Management API token verified and saved.') }}/>} {view === 'Activity' && <ActivityPage activities={registry.activities} downloadingId={downloadingId} onDownload={downloadBackup}/>} {view === 'Settings' && <SettingsPage/>}
         </>}
       </div>
     </main>

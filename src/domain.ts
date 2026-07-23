@@ -13,6 +13,7 @@ export interface RecoveryCoverage {
   storageMetadata: boolean
   storageObjects: boolean
   configuration: boolean
+  managementApi: boolean
 }
 
 export interface LatestRecoveryPoint {
@@ -60,6 +61,7 @@ export interface Project {
   secretPath: string
   secretConfigured: boolean
   storageSecretConfigured: boolean
+  managementSecretConfigured: boolean
   latestRecoveryPoint: LatestRecoveryPoint | null
   restoreDrills: RestoreDrill[]
 }
@@ -97,4 +99,11 @@ export interface UpdateProjectInput {
   backupMode: BackupMode
   backupSchedule: string
   keepAliveSchedule: string | null
+}
+
+export interface StorageCredentialsInput {
+  endpoint: string
+  region: string
+  accessKeyId: string
+  secretAccessKey: string
 }
