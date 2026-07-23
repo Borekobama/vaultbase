@@ -57,6 +57,7 @@ export async function verifyResticSnapshot(resticSnapshotId: string) {
     const compatibleSchemaPath = join(root, 'database', 'schema.verify.sql')
     const compatibleSchema = (await readFile(schemaPath, 'utf8')).replace(/^SET transaction_timeout = 0;\r?\n/gm, '')
     await writeFile(compatibleSchemaPath, compatibleSchema, { mode: 0o600 })
+    await runProcess(join(config.PG_BIN_DIRECTORY, 'psql'), ['--set', 'ON_ERROR_STOP=1', '--command', 'CREATE SCHEMA IF NOT EXISTS extensions;'], { env })
     await runProcess(join(config.PG_BIN_DIRECTORY, 'psql'), ['--set', 'ON_ERROR_STOP=1', '--file', compatibleSchemaPath], { env })
     const dataSqlPath = join(root, 'database', 'data.verify.sql')
     await runProcess(join(config.PG_BIN_DIRECTORY, 'pg_restore'), ['--no-owner', '--no-privileges', '--file', dataSqlPath, join(root, 'database', 'data.dump')], { env })
