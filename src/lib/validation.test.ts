@@ -13,6 +13,10 @@ describe('project validation', () => {
     expect(validateProject(valid, [])).toEqual({})
   })
 
+  it('accepts a dedicated backup role through the session pooler', () => {
+    expect(validateProject({ ...valid, databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres' }, [])).toEqual({})
+  })
+
   it('rejects duplicate names and incomplete secrets', () => {
     const errors = validateProject({ ...valid, databaseUrl: 'postgresql://host/postgres' }, ['customer-portal'])
     expect(errors.name).toMatch(/already exists/i)

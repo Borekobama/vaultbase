@@ -8,6 +8,12 @@ describe('Supabase database connection parsing', () => {
     })
   })
 
+  it('accepts a dedicated backup role through the session pooler', () => {
+    expect(parseSupabaseDatabaseUrl('postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres')).toEqual({
+      projectRef: 'abcdefghijkl', region: 'eu-north-1', connectionType: 'session_pooler',
+    })
+  })
+
   it('derives the project reference from a direct URL', () => {
     expect(parseSupabaseDatabaseUrl('postgresql://postgres:password@db.abcdefghijkl.supabase.co:5432/postgres')).toMatchObject({
       projectRef: 'abcdefghijkl', region: null, connectionType: 'direct',

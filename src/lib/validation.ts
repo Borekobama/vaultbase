@@ -18,7 +18,7 @@ export function validateProject(input: NewProjectInput, existingIds: string[]): 
     if (!['postgres:', 'postgresql:'].includes(url.protocol)) errors.databaseUrl = 'Use a PostgreSQL connection string.'
     else if (!url.hostname || !url.username || !url.password) errors.databaseUrl = 'The connection string must include a host, username, and password.'
     else if (url.hostname.endsWith('.pooler.supabase.com') && url.port === '6543') errors.databaseUrl = 'Use Session Pooler port 5432 for backups, not Transaction mode 6543.'
-    else if (!/^postgres\.[a-z0-9]+$/i.test(decodeURIComponent(url.username)) && !/^db\.[a-z0-9]+\.supabase\.co$/i.test(url.hostname)) errors.databaseUrl = 'Use a Supabase Direct or Session Pooler connection string.'
+    else if (!/^[a-z_][a-z0-9_-]*\.[a-z0-9]+$/i.test(decodeURIComponent(url.username)) && !/^db\.[a-z0-9]+\.supabase\.co$/i.test(url.hostname)) errors.databaseUrl = 'Use a Supabase Direct or Session Pooler connection string.'
   } catch {
     errors.databaseUrl = 'Enter a valid PostgreSQL connection string.'
   }

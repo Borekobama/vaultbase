@@ -31,9 +31,9 @@ export function parseSupabaseDatabaseUrl(raw: string) {
   if (!url.password || url.password === '[YOUR-PASSWORD]') throw new Error('Replace [YOUR-PASSWORD] with the database password.')
   if (url.hostname.endsWith('.pooler.supabase.com') && url.port === '6543') throw new Error('Use the Session Pooler on port 5432 for backups, not Transaction mode on port 6543.')
 
-  const usernameRef = decodeURIComponent(url.username).match(/^postgres\.([a-z0-9]+)$/i)?.[1]
+  const poolerRef = decodeURIComponent(url.username).match(/^[a-z_][a-z0-9_-]*\.([a-z0-9]+)$/i)?.[1]
   const directRef = url.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1]
-  const projectRef = usernameRef ?? directRef
+  const projectRef = poolerRef ?? directRef
   if (!projectRef) throw new Error('Could not derive the Supabase project reference from this connection string.')
   const region = url.hostname.match(/^aws-\d+-([a-z]+-[a-z]+-\d+)\.pooler\.supabase\.com$/i)?.[1] ?? null
 
