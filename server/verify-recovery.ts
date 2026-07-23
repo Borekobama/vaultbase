@@ -32,6 +32,26 @@ async function findManifest(root: string): Promise<string> {
   throw new Error('Recovery pack manifest was not found.')
 }
 
+export function createRestoreCompatibleSchema(schema: string) {
+  const lines = schema.replace(/^SET transaction_timeout = 0;\r?\n/gm, '').split(/\r?\n/)
+  const compatible: string[] = []
+  let skipSection = false
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const sectionHeader = line === '--' ? lines[index + 1] : undefined
+    if (sectionHeader?.startsWith('-- Name:')) {
+      skipSection = /; Type: (?:EXTENSION|EVENT TRIGGER);/.test(sectionHeader)
+        || /-- Name: EXTENSION .*; Type: COMMENT;/.test(sectionHeader)
+    } else if (line === '--' && lines[index + 1] === '-- PostgreSQL database dump complete') {
+      skipSection = false
+    }
+    if (!skipSection) compatible.push(line)
+  }
+
+  return compatible.join('\n')
+}
+
 export async function verifyResticSnapshot(resticSnapshotId: string) {
   if (!/^[a-f0-9]{8,64}$/i.test(resticSnapshotId)) throw new Error('Invalid Restic snapshot ID.')
   const target = await createWorkDirectory('verify')
@@ -55,7 +75,7 @@ export async function verifyResticSnapshot(resticSnapshotId: string) {
     const env = { ...process.env, PGHOST: localUrl.hostname || 'localhost', PGPORT: localUrl.port || '5432', PGUSER: decodeURIComponent(localUrl.username) || process.env.USER, PGPASSWORD: decodeURIComponent(localUrl.password), PGDATABASE: databaseName, PGSSLMODE: 'disable' }
     const schemaPath = join(root, 'database', 'schema.sql')
     const compatibleSchemaPath = join(root, 'database', 'schema.verify.sql')
-    const compatibleSchema = (await readFile(schemaPath, 'utf8')).replace(/^SET transaction_timeout = 0;\r?\n/gm, '')
+    const compatibleSchema = createRestoreCompatibleSchema(await readFile(schemaPath, 'utf8'))
     await writeFile(compatibleSchemaPath, compatibleSchema, { mode: 0o600 })
     await runProcess(join(config.PG_BIN_DIRECTORY, 'psql'), ['--set', 'ON_ERROR_STOP=1', '--command', 'CREATE SCHEMA IF NOT EXISTS extensions;'], { env })
     await runProcess(join(config.PG_BIN_DIRECTORY, 'psql'), ['--set', 'ON_ERROR_STOP=1', '--file', compatibleSchemaPath], { env })
