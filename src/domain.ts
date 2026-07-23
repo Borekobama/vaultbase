@@ -11,10 +11,17 @@ export interface Project {
   region: string
   plan: SupabasePlan
   enabled: boolean
+  backupMode: BackupMode
   backupSchedule: string
   keepAliveSchedule: string
+  createdAt: string
+  nextBackupAt: string | null
   lastBackupAt: string | null
+  latestBackupAttemptAt: string | null
   storageBytes: number
+  snapshotCount: number
+  successfulBackupCount: number
+  failedBackupCount: number
   status: ProjectStatus
   secretPath: string
   secretConfigured: boolean

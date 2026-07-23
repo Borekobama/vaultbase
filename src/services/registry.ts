@@ -14,7 +14,17 @@ function readState(): RegistryState {
     if (!Array.isArray(parsed.projects) || !Array.isArray(parsed.activities)) throw new Error('Invalid registry')
     if (parsed.projects.some(project => !project || typeof project.id !== 'string' || typeof project.secretPath !== 'string')) throw new Error('Invalid project metadata')
     if (parsed.activities.some(activity => !activity || typeof activity.id !== 'string' || typeof activity.projectId !== 'string')) throw new Error('Invalid activity metadata')
-    parsed.projects = parsed.projects.map(project => ({ ...project, plan: project.plan ?? 'free' }))
+    parsed.projects = parsed.projects.map(project => ({
+      ...project,
+      plan: project.plan ?? 'free',
+      backupMode: project.backupMode ?? 'database',
+      createdAt: project.createdAt ?? new Date().toISOString(),
+      nextBackupAt: project.nextBackupAt ?? null,
+      latestBackupAttemptAt: project.latestBackupAttemptAt ?? project.lastBackupAt ?? null,
+      snapshotCount: project.snapshotCount ?? (project.lastBackupAt ? 1 : 0),
+      successfulBackupCount: project.successfulBackupCount ?? (project.lastBackupAt ? 1 : 0),
+      failedBackupCount: project.failedBackupCount ?? 0,
+    }))
     return parsed
   } catch {
     return clone(seedState)
@@ -39,7 +49,7 @@ const mockRegistryService = {
     const state = readState()
     const id = normalizeProjectId(input.name)
     const url = new URL(input.databaseUrl)
-    const ref = decodeURIComponent(url.username).match(/^postgres\.([a-z0-9]+)$/i)?.[1] ?? url.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1] ?? 'unknown'
+    const ref = decodeURIComponent(url.username).match(/^[a-z_][a-z0-9_-]*\.([a-z0-9]+)$/i)?.[1] ?? url.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1] ?? 'unknown'
     const region = url.hostname.match(/^aws-\d+-([a-z]+-[a-z]+-\d+)\.pooler\.supabase\.com$/i)?.[1] ?? 'direct'
     if (state.projects.some(project => project.id === id)) throw new Error('A project with this name already exists.')
 
@@ -51,10 +61,17 @@ const mockRegistryService = {
       region,
       plan: input.plan,
       enabled: true,
+      backupMode: input.backupMode,
       backupSchedule: input.backupSchedule,
       keepAliveSchedule: input.keepAliveSchedule,
+      createdAt: new Date().toISOString(),
+      nextBackupAt: null,
       lastBackupAt: null,
+      latestBackupAttemptAt: null,
       storageBytes: 0,
+      snapshotCount: 0,
+      successfulBackupCount: 0,
+      failedBackupCount: 0,
       status: 'pending',
       secretPath: `supabase/${id}/database`,
       secretConfigured: true,
@@ -79,7 +96,10 @@ const mockRegistryService = {
     const bytes = project.storageBytes || 1_000_000
     project.status = 'healthy'
     project.lastBackupAt = completedAt
+    project.latestBackupAttemptAt = completedAt
     project.storageBytes = bytes
+    project.snapshotCount += 1
+    project.successfulBackupCount += 1
     const activity: ActivityItem = {
       id: activityId(), projectId, type: 'backup', status: 'success',
       occurredAt: completedAt, durationMs: 650, bytes, message: 'Backup completed',
@@ -132,8 +152,12 @@ function mapState(payload: { projects: Array<Record<string, unknown>>; activitie
   return {
     projects: payload.projects.map(project => ({
       id: String(project.id), ref: String(project.ref), region: String(project.region), plan: project.plan as Project['plan'], enabled: Boolean(project.enabled),
+      backupMode: project.backup_mode as Project['backupMode'],
       backupSchedule: String(project.backup_schedule), keepAliveSchedule: project.keep_alive_schedule ? String(project.keep_alive_schedule) : 'Disabled',
-      lastBackupAt: project.last_backup_at ? String(project.last_backup_at) : null, storageBytes: Number(project.storage_bytes), status: project.status as Project['status'],
+      createdAt: String(project.created_at), nextBackupAt: project.next_backup_at ? String(project.next_backup_at) : null,
+      lastBackupAt: project.last_backup_at ? String(project.last_backup_at) : null, latestBackupAttemptAt: project.latest_backup_attempt_at ? String(project.latest_backup_attempt_at) : null,
+      storageBytes: Number(project.storage_bytes), snapshotCount: Number(project.snapshot_count), successfulBackupCount: Number(project.successful_backup_count),
+      failedBackupCount: Number(project.failed_backup_count), status: project.status as Project['status'],
       secretPath: String(project.secret_path), secretConfigured: Boolean(project.secret_configured),
     })),
     activities: payload.activities.map(activity => ({

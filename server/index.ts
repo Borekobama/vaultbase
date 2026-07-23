@@ -2,6 +2,7 @@ import express from 'express'
 import helmet from 'helmet'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
+import { Cron } from 'croner'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -21,6 +22,18 @@ import { enqueueBackup, getJob, resumeManualJobs } from './manual-jobs.js'
 const app = express()
 const sessions = new Map<string, number>()
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000
+const schedulerTimezone = process.env.TZ || 'UTC'
+
+function nextScheduledRun(expression: string) {
+  try {
+    const cron = new Cron(expression, { timezone: schedulerTimezone })
+    const next = cron.nextRun()?.toISOString() ?? null
+    cron.stop()
+    return next
+  } catch {
+    return null
+  }
+}
 const sessionSweep = setInterval(() => {
   const now = Date.now()
   for (const [session, expires] of sessions) if (expires <= now) sessions.delete(session)
@@ -112,10 +125,24 @@ app.get('/api/projects', async (_request, response) => {
 
 app.get('/api/state', async (_request, response) => {
   const [projects, activities] = await Promise.all([
-    localPool.query(`SELECT id, project_ref ref, coalesce(region,'unknown') region, plan, enabled, backup_schedule, keep_alive_schedule, last_backup_at, measured_dump_bytes storage_bytes, status, secret_ref secret_path, true secret_configured FROM vaultbase.projects ORDER BY created_at DESC`),
+    localPool.query(`SELECT p.id, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
+      p.created_at, p.last_backup_at, p.measured_dump_bytes storage_bytes, p.status, p.secret_ref secret_path, true secret_configured,
+      stats.latest_backup_attempt_at, stats.snapshot_count, stats.successful_backup_count, stats.failed_backup_count
+      FROM vaultbase.projects p
+      LEFT JOIN LATERAL (
+        SELECT max(s.started_at) latest_backup_attempt_at,
+          count(*) snapshot_count,
+          count(*) FILTER (WHERE s.status IN ('uploaded','verified','restore_verified')) successful_backup_count,
+          count(*) FILTER (WHERE s.status='failed') failed_backup_count
+        FROM vaultbase.snapshots s WHERE s.project_id=p.id
+      ) stats ON true
+      ORDER BY p.created_at DESC`),
     localPool.query(`SELECT id, project_id, snapshot_id, event_type type, status, occurred_at, duration_ms, bytes, message FROM vaultbase.activities ORDER BY occurred_at DESC LIMIT 500`),
   ])
-  response.json({ projects: projects.rows, activities: activities.rows })
+  response.json({
+    projects: projects.rows.map(project => ({ ...project, next_backup_at: nextScheduledRun(project.backup_schedule) })),
+    activities: activities.rows,
+  })
 })
 
 app.put('/api/projects/:id/secrets/storage', async (request, response, next) => {
