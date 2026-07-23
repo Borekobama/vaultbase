@@ -6,6 +6,36 @@ export type ProjectStatus = 'healthy' | 'warning' | 'pending' | 'running' | 'fai
 export type JobType = 'backup' | 'keep_alive' | 'retention'
 export type ActivityStatus = 'success' | 'running' | 'warning' | 'failed'
 
+export interface RecoveryCoverage {
+  database: boolean
+  roles: boolean
+  auth: boolean
+  storageMetadata: boolean
+  storageObjects: boolean
+  configuration: boolean
+}
+
+export interface LatestRecoveryPoint {
+  id: string
+  status: 'uploaded' | 'verified' | 'restore_verified'
+  startedAt: string
+  completedAt: string | null
+  verifiedAt: string | null
+  fileCount: number
+  tablesVerified: number | null
+  filesVerified: number | null
+  warnings: string[]
+  coverage: RecoveryCoverage
+}
+
+export interface RestoreDrill {
+  snapshotId: string
+  verifiedAt: string
+  snapshotStartedAt: string
+  tablesVerified: number | null
+  filesVerified: number | null
+}
+
 export interface Project {
   id: string
   displayName: string
@@ -29,6 +59,9 @@ export interface Project {
   status: ProjectStatus
   secretPath: string
   secretConfigured: boolean
+  storageSecretConfigured: boolean
+  latestRecoveryPoint: LatestRecoveryPoint | null
+  restoreDrills: RestoreDrill[]
 }
 
 export interface ActivityItem {

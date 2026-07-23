@@ -1,6 +1,6 @@
-import { Activity, Archive, CalendarClock, Database, HardDrive, Pencil, Play, RotateCw, X } from 'lucide-react'
+import { Activity, Archive, CalendarClock, Check, Database, FlaskConical, HardDrive, Minus, Pencil, Play, RotateCw, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { type FormEvent, type ReactNode, useState } from 'react'
-import type { ActivityItem, Project, UpdateProjectInput } from '../domain'
+import type { ActivityItem, Project, RecoveryCoverage, UpdateProjectInput } from '../domain'
 import { formatBytes, formatDateTime } from '../lib/format'
 
 interface ProjectTableProps {
@@ -9,6 +9,7 @@ interface ProjectTableProps {
   busyJob: string | null
   onRunBackup: (projectId: string) => void
   onRunKeepAlive: (projectId: string) => void
+  onVerifyRecoveryPoint: (projectId: string) => void
   onUpdate: (projectId: string, input: UpdateProjectInput) => Promise<void>
   onRefresh: () => void
   onAdd: () => void
@@ -21,7 +22,7 @@ const scheduleLabel: Record<string, string> = {
   '0 3 * * 0': 'Sunday at 03:00',
 }
 
-export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRunKeepAlive, onUpdate, onRefresh, onAdd }: ProjectTableProps) {
+export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRunKeepAlive, onVerifyRecoveryPoint, onUpdate, onRefresh, onAdd }: ProjectTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   return <section className="panel" aria-labelledby="projects-title">
     <div className="panel-heading"><div><h2 id="projects-title">Recovery ledger</h2><p>Backup coverage, recovery points, and the next scheduled action</p></div><button className="quiet button-with-icon" type="button" onClick={onRefresh}><RotateCw size={14} aria-hidden="true"/>Refresh</button></div>
@@ -30,6 +31,7 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
         {projects.map(project => {
           const backupRunning = busyJob === `backup:${project.id}` || project.status === 'running'
           const keepAliveRunning = busyJob === `keep_alive:${project.id}`
+          const verifyRunning = busyJob === `verify:${project.id}`
           const latestActivity = activities.find(item => item.projectId === project.id)
           const editing = editingId === project.id
           return <article className={`project-record ${project.status}`} key={project.id}>
@@ -45,6 +47,7 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
               <ProjectFact icon={<Database size={14}/>} label="Recovery points" value={`${project.successfulBackupCount} successful`} detail={`${project.failedBackupCount} failed · ${project.snapshotCount} total attempts`}/>
               <ProjectFact icon={<HardDrive size={14}/>} label="Measured payload" value={project.storageBytes > 0 ? formatBytes(project.storageBytes) : 'Not measured'} detail={project.storageBytes > 0 ? 'Latest encrypted recovery pack' : 'Calculated after the first export'}/>
             </div>
+            <RecoveryReadiness project={project} verifying={verifyRunning} disabled={Boolean(busyJob)} onVerify={() => onVerifyRecoveryPoint(project.id)}/>
             <footer className="project-record-footer">
               <span><b className="pulse" aria-hidden="true"/>Latest signal</span>
               <strong>{latestActivity?.message ?? 'Project registered; waiting for its first runner event'}</strong>
@@ -56,6 +59,42 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
       </div>
       <div className="table-footer"><span>{projects.length} protected {projects.length === 1 ? 'project' : 'projects'}</span><span>Runner: <strong>Docker service</strong> <i aria-hidden="true"/></span></div>
     </>}
+  </section>
+}
+
+const coverageItems: Array<{ key: keyof RecoveryCoverage; label: string; fullProjectOnly?: boolean }> = [
+  { key: 'database', label: 'Database' },
+  { key: 'roles', label: 'Roles' },
+  { key: 'auth', label: 'Auth users', fullProjectOnly: true },
+  { key: 'storageMetadata', label: 'Storage catalog', fullProjectOnly: true },
+  { key: 'storageObjects', label: 'Object files', fullProjectOnly: true },
+  { key: 'configuration', label: 'Configuration', fullProjectOnly: true },
+]
+
+function RecoveryReadiness({ project, verifying, disabled, onVerify }: { project: Project; verifying: boolean; disabled: boolean; onVerify: () => void }) {
+  const point = project.latestRecoveryPoint
+  const required = coverageItems.filter(item => !item.fullProjectOnly || project.backupMode === 'full_project')
+  const protectedCount = required.filter(item => point?.coverage[item.key]).length
+  const latestDrill = project.restoreDrills[0]
+  return <section className="recovery-readiness" aria-label={`Recovery readiness for ${project.displayName}`}>
+    <div className="coverage-pane">
+      <div className="readiness-heading"><div><span>Recovery readiness</span><strong>{point ? `${protectedCount} of ${required.length} components protected` : 'Waiting for the first recovery point'}</strong></div><div className={`readiness-score ${protectedCount === required.length && required.length > 0 ? 'complete' : 'incomplete'}`}>{protectedCount}/{required.length}</div></div>
+      <div className="coverage-list">
+        {coverageItems.map(item => {
+          const included = !item.fullProjectOnly || project.backupMode === 'full_project'
+          const covered = Boolean(point?.coverage[item.key])
+          const detail = !included ? 'Not in mode' : covered ? 'Captured' : item.key === 'storageObjects' && !project.storageSecretConfigured ? 'Credentials needed' : 'Missing'
+          return <div className={`coverage-item ${!included ? 'excluded' : covered ? 'covered' : 'missing'}`} key={item.key}><span className="coverage-mark" aria-hidden="true">{!included ? <Minus size={12}/> : covered ? <Check size={12}/> : <X size={12}/>}</span><strong>{item.label}</strong><small>{detail}</small></div>
+        })}
+      </div>
+      {point?.warnings[0] && <div className="coverage-warning"><TriangleAlert size={13} aria-hidden="true"/>{point.warnings[0]}</div>}
+    </div>
+    <div className="drill-pane">
+      <div className="drill-heading"><span>Restore drills</span><FlaskConical size={15} aria-hidden="true"/></div>
+      {latestDrill ? <div className="drill-result"><div className="drill-state"><ShieldCheck size={18} aria-hidden="true"/><div><strong>Latest drill passed</strong><time dateTime={latestDrill.verifiedAt}>{formatDateTime(latestDrill.verifiedAt)}</time></div></div><p>{latestDrill.tablesVerified === null ? 'Application data restored successfully.' : `${latestDrill.tablesVerified} ${latestDrill.tablesVerified === 1 ? 'table' : 'tables'} and ${latestDrill.filesVerified ?? point?.fileCount ?? 0} archive files verified.`}</p></div> : <div className="drill-result untested"><strong>Not tested yet</strong><p>{point ? `Latest recovery point: ${formatDateTime(point.startedAt)}.` : 'Create a recovery point before running a drill.'}</p></div>}
+      {project.restoreDrills.length > 1 && <div className="drill-history">{project.restoreDrills.slice(1).map(drill => <time key={`${drill.snapshotId}-${drill.verifiedAt}`} dateTime={drill.verifiedAt}><Check size={10}/>{formatDateTime(drill.verifiedAt)}</time>)}</div>}
+      <button className="quiet action-button drill-action" type="button" disabled={disabled || !point} onClick={onVerify}><FlaskConical size={13} aria-hidden="true"/>{verifying ? 'Restoring…' : latestDrill ? 'Run another drill' : 'Test restore now'}</button>
+    </div>
   </section>
 }
 

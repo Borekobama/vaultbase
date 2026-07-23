@@ -54,6 +54,7 @@ async function createRecoveryPackUnlocked(projectId: string) {
   await localPool.query(`INSERT INTO vaultbase.snapshots(id, project_id, status, components, started_at) VALUES ($1,$2,'running',$3,$4)`, [snapshotId, projectId, { database: 'running' }, startedAt])
 
   try {
+    let storageObjects = { configured: false, objects: 0 }
     const databaseUrl = await secretStore.get(project.secret_ref)
     const env = postgresEnvironment(databaseUrl)
     const pgDump = join(config.PG_BIN_DIRECTORY, 'pg_dump')
@@ -73,7 +74,7 @@ async function createRecoveryPackUnlocked(projectId: string) {
       await runProcess(pgDump, ['--data-only', '--format=custom', '--schema=storage', '--no-owner', '--no-privileges', '--file', join(storageDirectory, 'metadata.dump')], { env })
       await runProcess(pgDump, ['--schema-only', '--schema=auth', '--schema=storage', '--no-owner', '--no-privileges'], { env, stdoutFile: join(configurationDirectory, 'managed-schema.sql') })
       await runProcess(pgDump, ['--schema-only', '--schema=extensions', '--no-owner', '--no-privileges'], { env, stdoutFile: join(configurationDirectory, 'extensions.sql') })
-      await syncStorageObjects(projectId, join(storageDirectory, 'objects'))
+      storageObjects = await syncStorageObjects(projectId, join(storageDirectory, 'objects'))
     }
 
     const files: Array<{ path: string; bytes: number; sha256: string }> = []
@@ -86,7 +87,20 @@ async function createRecoveryPackUnlocked(projectId: string) {
       }
     }
     await collect(directory)
-    const manifest = { version: 1, snapshotId, projectId, projectRef: project.project_ref, mode: project.backup_mode, createdAt: startedAt.toISOString(), files, complete: project.backup_mode === 'database', warnings: project.backup_mode === 'full_project' ? ['Storage object bodies and Management API configuration require additional project credentials.'] : [] }
+    const paths = new Set(files.map(file => file.path))
+    const coverage = {
+      database: paths.has('database/schema.sql') && paths.has('database/data.dump'),
+      roles: paths.has('database/roles.sql'),
+      auth: project.backup_mode === 'full_project' && paths.has('auth/users-and-identities.dump'),
+      storageMetadata: project.backup_mode === 'full_project' && paths.has('storage/metadata.dump'),
+      storageObjects: project.backup_mode === 'full_project' && storageObjects.configured,
+      configuration: project.backup_mode === 'full_project' && paths.has('configuration/managed-schema.sql') && paths.has('configuration/extensions.sql'),
+    }
+    const warnings = [
+      ...(!coverage.storageObjects && project.backup_mode === 'full_project' ? ['Storage object bodies require Storage S3 credentials.'] : []),
+      ...(project.backup_mode === 'full_project' ? ['Management API configuration is not included yet.'] : []),
+    ]
+    const manifest = { version: 2, snapshotId, projectId, projectRef: project.project_ref, mode: project.backup_mode, createdAt: startedAt.toISOString(), files, coverage, storageObjectCount: storageObjects.objects, complete: project.backup_mode === 'database' || warnings.length === 0, warnings }
     await writeFile(join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
 
     const r2 = await parseEnvironmentFile(config.R2_ENV_FILE)

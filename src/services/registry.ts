@@ -1,5 +1,5 @@
 import { seedState } from '../data/seed'
-import type { ActivityItem, NewProjectInput, Project, RegistryState, UpdateProjectInput } from '../domain'
+import type { ActivityItem, LatestRecoveryPoint, NewProjectInput, Project, RecoveryCoverage, RegistryState, RestoreDrill, UpdateProjectInput } from '../domain'
 import { normalizeProjectId } from '../lib/validation'
 import { strToU8, zipSync } from 'fflate'
 
@@ -27,6 +27,9 @@ function readState(): RegistryState {
       snapshotCount: project.snapshotCount ?? (project.lastBackupAt ? 1 : 0),
       successfulBackupCount: project.successfulBackupCount ?? (project.lastBackupAt ? 1 : 0),
       failedBackupCount: project.failedBackupCount ?? 0,
+      storageSecretConfigured: project.storageSecretConfigured ?? false,
+      latestRecoveryPoint: project.latestRecoveryPoint ?? null,
+      restoreDrills: project.restoreDrills ?? [],
     }))
     return parsed
   } catch {
@@ -81,6 +84,9 @@ const mockRegistryService = {
       status: 'pending',
       secretPath: `supabase/${id}/database`,
       secretConfigured: true,
+      storageSecretConfigured: false,
+      latestRecoveryPoint: null,
+      restoreDrills: [],
     }
     state.projects.unshift(project)
     writeState(state)
@@ -120,6 +126,25 @@ const mockRegistryService = {
       id: activityId(), projectId, type: 'backup', status: 'success',
       occurredAt: completedAt, durationMs: 650, bytes, message: 'Backup completed',
     }
+    project.latestRecoveryPoint = {
+      id: activity.id,
+      status: 'uploaded',
+      startedAt: completedAt,
+      completedAt,
+      verifiedAt: null,
+      fileCount: project.backupMode === 'full_project' ? 7 : 3,
+      tablesVerified: null,
+      filesVerified: null,
+      warnings: project.backupMode === 'full_project' && !project.storageSecretConfigured ? ['Storage object bodies require Storage S3 credentials.'] : [],
+      coverage: {
+        database: true,
+        roles: true,
+        auth: project.backupMode === 'full_project',
+        storageMetadata: project.backupMode === 'full_project',
+        storageObjects: project.backupMode === 'full_project' && project.storageSecretConfigured,
+        configuration: project.backupMode === 'full_project',
+      },
+    }
     state.activities.unshift(activity)
     writeState(state)
     return clone(state)
@@ -133,6 +158,27 @@ const mockRegistryService = {
     if (!project.enabled) throw new Error('Enable this project before starting a keep-alive check.')
     await delay(280)
     state.activities.unshift({ id: activityId(), projectId, type: 'keep_alive', status: 'success', occurredAt: new Date().toISOString(), durationMs: 280, bytes: null, message: 'Keep-alive query succeeded' })
+    writeState(state)
+    return clone(state)
+  },
+
+  async verifyRecoveryPoint(projectId: string): Promise<RegistryState> {
+    await delay(460)
+    const state = readState()
+    const project = state.projects.find(item => item.id === projectId)
+    if (!project?.latestRecoveryPoint) throw new Error('No recovery point is available to verify.')
+    project.latestRecoveryPoint.status = 'restore_verified'
+    project.latestRecoveryPoint.verifiedAt = new Date().toISOString()
+    project.latestRecoveryPoint.filesVerified = project.latestRecoveryPoint.fileCount
+    project.latestRecoveryPoint.tablesVerified = 3
+    project.restoreDrills.unshift({
+      snapshotId: project.latestRecoveryPoint.id,
+      verifiedAt: project.latestRecoveryPoint.verifiedAt,
+      snapshotStartedAt: project.latestRecoveryPoint.startedAt,
+      filesVerified: project.latestRecoveryPoint.filesVerified,
+      tablesVerified: project.latestRecoveryPoint.tablesVerified,
+    })
+    project.restoreDrills = project.restoreDrills.slice(0, 3)
     writeState(state)
     return clone(state)
   },
@@ -164,6 +210,49 @@ const mockRegistryService = {
   },
 }
 
+function mapRecoveryPoint(project: Record<string, unknown>): LatestRecoveryPoint | null {
+  if (!project.latest_snapshot_id) return null
+  const components = (project.latest_snapshot_components ?? {}) as { files?: Array<{ path?: string }>; warnings?: unknown[]; coverage?: Partial<RecoveryCoverage> }
+  const paths = new Set((components.files ?? []).map(file => String(file.path ?? '')))
+  const explicit = components.coverage ?? {}
+  const verification = (project.latest_snapshot_verification_details ?? {}) as { tables?: unknown; files?: unknown }
+  const finiteNumber = (value: unknown) => value !== undefined && value !== null && Number.isFinite(Number(value)) ? Number(value) : null
+  return {
+    id: String(project.latest_snapshot_id),
+    status: project.latest_snapshot_status as LatestRecoveryPoint['status'],
+    startedAt: String(project.latest_snapshot_started_at),
+    completedAt: project.latest_snapshot_completed_at ? String(project.latest_snapshot_completed_at) : null,
+    verifiedAt: project.latest_snapshot_verified_at ? String(project.latest_snapshot_verified_at) : null,
+    fileCount: components.files?.length ?? 0,
+    tablesVerified: finiteNumber(verification.tables),
+    filesVerified: finiteNumber(verification.files),
+    warnings: (components.warnings ?? []).map(String),
+    coverage: {
+      database: explicit.database ?? (paths.has('database/schema.sql') && paths.has('database/data.dump')),
+      roles: explicit.roles ?? paths.has('database/roles.sql'),
+      auth: explicit.auth ?? paths.has('auth/users-and-identities.dump'),
+      storageMetadata: explicit.storageMetadata ?? paths.has('storage/metadata.dump'),
+      storageObjects: explicit.storageObjects ?? paths.has('storage/objects/manifest.json'),
+      configuration: explicit.configuration ?? (paths.has('configuration/managed-schema.sql') && paths.has('configuration/extensions.sql')),
+    },
+  }
+}
+
+function mapRestoreDrills(project: Record<string, unknown>): RestoreDrill[] {
+  const rows = Array.isArray(project.restore_drills) ? project.restore_drills as Array<Record<string, unknown>> : []
+  return rows.map(row => {
+    const details = (row.verification_details ?? {}) as { tables?: unknown; files?: unknown }
+    const finiteNumber = (value: unknown) => value !== undefined && value !== null && Number.isFinite(Number(value)) ? Number(value) : null
+    return {
+      snapshotId: String(row.id),
+      verifiedAt: String(row.verified_at),
+      snapshotStartedAt: String(row.snapshot_started_at),
+      tablesVerified: finiteNumber(details.tables),
+      filesVerified: finiteNumber(details.files),
+    }
+  })
+}
+
 function mapState(payload: { projects: Array<Record<string, unknown>>; activities: Array<Record<string, unknown>> }): RegistryState {
   return {
     projects: payload.projects.map(project => ({
@@ -176,6 +265,8 @@ function mapState(payload: { projects: Array<Record<string, unknown>>; activitie
       storageBytes: Number(project.storage_bytes), snapshotCount: Number(project.snapshot_count), successfulBackupCount: Number(project.successful_backup_count),
       failedBackupCount: Number(project.failed_backup_count), status: project.status as Project['status'],
       secretPath: String(project.secret_path), secretConfigured: Boolean(project.secret_configured),
+      storageSecretConfigured: Boolean(project.storage_secret_configured), latestRecoveryPoint: mapRecoveryPoint(project),
+      restoreDrills: mapRestoreDrills(project),
     })),
     activities: payload.activities.map(activity => ({
       id: String(activity.id), projectId: String(activity.project_id), type: activity.type as ActivityItem['type'], status: activity.status as ActivityItem['status'],
@@ -215,6 +306,13 @@ const productionRegistryService = {
     }
   },
   async runKeepAlive(projectId: string) { await api(`/api/projects/${encodeURIComponent(projectId)}/keep-alive`, { method: 'POST' }); return this.load() },
+  async verifyRecoveryPoint(projectId: string) {
+    const state = await this.load()
+    const snapshotId = state.projects.find(project => project.id === projectId)?.latestRecoveryPoint?.id
+    if (!snapshotId) throw new Error('No recovery point is available to verify.')
+    await api(`/api/snapshots/${encodeURIComponent(snapshotId)}/verify`, { method: 'POST' })
+    return this.load()
+  },
   async downloadBackup(activityId: string) {
     const response = await fetch(`/api/activities/${encodeURIComponent(activityId)}/download`, { credentials: 'same-origin' })
     if (!response.ok) throw new Error('That backup could not be downloaded.')

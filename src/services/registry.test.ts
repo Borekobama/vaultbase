@@ -38,7 +38,16 @@ describe('registry service', () => {
     const state = await registryService.runBackup('test-project')
     expect(state.projects[0].status).toBe('healthy')
     expect(state.projects[0].lastBackupAt).toBeTruthy()
+    expect(state.projects[0].latestRecoveryPoint?.coverage).toMatchObject({ database: true, roles: true })
     expect(state.activities[0]).toMatchObject({ projectId: 'test-project', type: 'backup', status: 'success' })
+  })
+
+  it('records restore drill results against the latest recovery point', async () => {
+    await registryService.addProject(project)
+    await registryService.runBackup('test-project')
+    const state = await registryService.verifyRecoveryPoint('test-project')
+    expect(state.projects[0].latestRecoveryPoint).toMatchObject({ status: 'restore_verified', filesVerified: 3, tablesVerified: 3 })
+    expect(state.projects[0].restoreDrills).toHaveLength(1)
   })
 
   it('builds a private download bundle only for a successful backup', async () => {

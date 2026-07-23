@@ -52,6 +52,7 @@ export function useRegistry() {
     updateProject: (projectId: string, input: UpdateProjectInput) => run(() => registryService.updateProject(projectId, input)),
     runBackup: (projectId: string) => run(() => registryService.runBackup(projectId)),
     runKeepAlive: (projectId: string) => run(() => registryService.runKeepAlive(projectId)),
+    verifyRecoveryPoint: (projectId: string) => run(() => registryService.verifyRecoveryPoint(projectId)),
     downloadBackup: (activityId: string) => registryService.downloadBackup(activityId),
     reset: () => run(() => registryService.reset()),
   }

@@ -127,7 +127,12 @@ app.get('/api/state', async (_request, response) => {
   const [projects, activities] = await Promise.all([
     localPool.query(`SELECT p.id, p.display_name, p.environment, p.notes, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
       p.created_at, p.last_backup_at, p.measured_dump_bytes storage_bytes, p.status, p.secret_ref secret_path, true secret_configured,
-      stats.latest_backup_attempt_at, stats.snapshot_count, stats.successful_backup_count, stats.failed_backup_count
+      EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='storage_s3') storage_secret_configured,
+      stats.latest_backup_attempt_at, stats.snapshot_count, stats.successful_backup_count, stats.failed_backup_count,
+      latest.id latest_snapshot_id, latest.status latest_snapshot_status, latest.components latest_snapshot_components,
+      latest.started_at latest_snapshot_started_at, latest.completed_at latest_snapshot_completed_at,
+      latest.verified_at latest_snapshot_verified_at, latest.verification_details latest_snapshot_verification_details,
+      drills.restore_drills
       FROM vaultbase.projects p
       LEFT JOIN LATERAL (
         SELECT max(s.started_at) latest_backup_attempt_at,
@@ -136,6 +141,21 @@ app.get('/api/state', async (_request, response) => {
           count(*) FILTER (WHERE s.status='failed') failed_backup_count
         FROM vaultbase.snapshots s WHERE s.project_id=p.id
       ) stats ON true
+      LEFT JOIN LATERAL (
+        SELECT s.id, s.status, s.components, s.started_at, s.completed_at, s.verified_at, s.verification_details
+        FROM vaultbase.snapshots s
+        WHERE s.project_id=p.id AND s.status IN ('uploaded','verified','restore_verified')
+        ORDER BY s.started_at DESC LIMIT 1
+      ) latest ON true
+      LEFT JOIN LATERAL (
+        SELECT coalesce(jsonb_agg(to_jsonb(recent) ORDER BY recent.verified_at DESC), '[]'::jsonb) restore_drills
+        FROM (
+          SELECT s.id, s.verified_at, s.started_at snapshot_started_at, s.verification_details
+          FROM vaultbase.snapshots s
+          WHERE s.project_id=p.id AND s.verified_at IS NOT NULL
+          ORDER BY s.verified_at DESC LIMIT 3
+        ) recent
+      ) drills ON true
       ORDER BY p.created_at DESC`),
     localPool.query(`SELECT id, project_id, snapshot_id, event_type type, status, occurred_at, duration_ms, bytes, message FROM vaultbase.activities ORDER BY occurred_at DESC LIMIT 500`),
   ])
@@ -267,7 +287,7 @@ app.post('/api/projects/:id/keep-alive', async (request, response, next) => {
 })
 
 app.get('/api/snapshots', async (_request, response) => {
-  const result = await localPool.query(`SELECT s.id, s.project_id, s.restic_snapshot_id, s.status, s.components, s.dump_bytes, s.started_at, s.completed_at, s.verified_at, s.expires_at FROM vaultbase.snapshots s ORDER BY s.started_at DESC LIMIT 500`)
+  const result = await localPool.query(`SELECT s.id, s.project_id, s.restic_snapshot_id, s.status, s.components, s.dump_bytes, s.started_at, s.completed_at, s.verified_at, s.verification_details, s.expires_at FROM vaultbase.snapshots s ORDER BY s.started_at DESC LIMIT 500`)
   response.json(result.rows)
 })
 
@@ -292,7 +312,8 @@ app.post('/api/snapshots/:id/verify', async (request, response, next) => {
     const snapshot = await localPool.query('SELECT restic_snapshot_id FROM vaultbase.snapshots WHERE id=$1', [request.params.id])
     if (!snapshot.rowCount || !snapshot.rows[0].restic_snapshot_id) return response.status(404).json({ error: 'Snapshot not found.' })
     const result = await verifyResticSnapshot(snapshot.rows[0].restic_snapshot_id)
-    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token','snapshot.verified','snapshot',$1)`, [request.params.id])
+    await localPool.query(`UPDATE vaultbase.snapshots SET verification_details=$2 WHERE id=$1`, [request.params.id, result])
+    await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token','snapshot.verified','snapshot',$1,$2)`, [request.params.id, result])
     response.json(result)
   } catch (error) {
     await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token','snapshot.verify_failed','snapshot',$1,$2)`, [request.params.id, { error: error instanceof Error ? error.message.slice(0, 500) : 'Unknown error' }]).catch(() => undefined)

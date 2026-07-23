@@ -26,11 +26,14 @@ const pendingProject: Project = {
   status: 'pending',
   secretPath: 'supabase/priority-project/database',
   secretConfigured: true,
+  storageSecretConfigured: false,
+  latestRecoveryPoint: null,
+  restoreDrills: [],
 }
 
 describe('ProjectTable', () => {
   it('explains first-backup state and exposes useful recovery details', () => {
-    render(<ProjectTable projects={[pendingProject]} activities={[]} busyJob={null} onRunBackup={vi.fn()} onRunKeepAlive={vi.fn()} onUpdate={vi.fn()} onRefresh={vi.fn()} onAdd={vi.fn()}/>)
+    render(<ProjectTable projects={[pendingProject]} activities={[]} busyJob={null} onRunBackup={vi.fn()} onRunKeepAlive={vi.fn()} onVerifyRecoveryPoint={vi.fn()} onUpdate={vi.fn()} onRefresh={vi.fn()} onAdd={vi.fn()}/>)
 
     expect(screen.getByText('Priority Project')).toBeInTheDocument()
     expect(screen.getByText('Customer-facing production application.')).toBeInTheDocument()
@@ -39,12 +42,14 @@ describe('ProjectTable', () => {
     expect(screen.getByText('0 successful')).toBeInTheDocument()
     expect(screen.getByText('0 failed · 0 total attempts')).toBeInTheDocument()
     expect(screen.getByText('Not measured')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for the first recovery point')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Test restore now' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Run backup for priority-project' })).toHaveTextContent('Run first backup')
   })
 
   it('edits project identity and protection settings inline', async () => {
     const onUpdate = vi.fn().mockResolvedValue(undefined)
-    const { container } = render(<ProjectTable projects={[pendingProject]} activities={[]} busyJob={null} onRunBackup={vi.fn()} onRunKeepAlive={vi.fn()} onUpdate={onUpdate} onRefresh={vi.fn()} onAdd={vi.fn()}/>)
+    const { container } = render(<ProjectTable projects={[pendingProject]} activities={[]} busyJob={null} onRunBackup={vi.fn()} onRunKeepAlive={vi.fn()} onVerifyRecoveryPoint={vi.fn()} onUpdate={onUpdate} onRefresh={vi.fn()} onAdd={vi.fn()}/>)
 
     const view = within(container)
     fireEvent.click(view.getByRole('button', { name: 'Edit' }))
@@ -57,5 +62,36 @@ describe('ProjectTable', () => {
       environment: 'staging',
       backupSchedule: '0 3 * * *',
     })))
+  })
+
+  it('shows component coverage and starts a restore drill', () => {
+    const onVerify = vi.fn()
+    const protectedProject: Project = {
+      ...pendingProject,
+      status: 'healthy',
+      lastBackupAt: '2026-07-23T15:09:40.935Z',
+      successfulBackupCount: 1,
+      snapshotCount: 1,
+      latestRecoveryPoint: {
+        id: 'snapshot-1',
+        status: 'uploaded',
+        startedAt: '2026-07-23T15:09:14.228Z',
+        completedAt: '2026-07-23T15:09:40.935Z',
+        verifiedAt: null,
+        fileCount: 7,
+        tablesVerified: null,
+        filesVerified: null,
+        warnings: ['Storage object bodies require Storage S3 credentials.'],
+        coverage: { database: true, roles: true, auth: true, storageMetadata: true, storageObjects: false, configuration: true },
+      },
+    }
+    const { container } = render(<ProjectTable projects={[protectedProject]} activities={[]} busyJob={null} onRunBackup={vi.fn()} onRunKeepAlive={vi.fn()} onVerifyRecoveryPoint={onVerify} onUpdate={vi.fn()} onRefresh={vi.fn()} onAdd={vi.fn()}/>)
+    const view = within(container)
+
+    expect(view.getByText('5 of 6 components protected')).toBeInTheDocument()
+    expect(view.getByText('Credentials needed')).toBeInTheDocument()
+    expect(view.getByText('Not tested yet')).toBeInTheDocument()
+    fireEvent.click(view.getByRole('button', { name: 'Test restore now' }))
+    expect(onVerify).toHaveBeenCalledWith('priority-project')
   })
 })

@@ -72,6 +72,20 @@ export default function App() {
     }
   }
 
+  const verifyRecoveryPoint = async (projectId: string) => {
+    if (busyJob) return
+    setBusyJob(`verify:${projectId}`)
+    notify(`Restore drill started for ${projectId}.`)
+    try {
+      await registry.verifyRecoveryPoint(projectId)
+      notify(`Restore drill passed for ${projectId}.`)
+    } catch {
+      // The registry hook exposes the verification failure in the error banner.
+    } finally {
+      setBusyJob(null)
+    }
+  }
+
   const updateProject = async (projectId: string, input: UpdateProjectInput) => {
     await registry.updateProject(projectId, input)
     notify(`${input.displayName} was updated.`)
@@ -116,7 +130,7 @@ export default function App() {
         {registry.loading ? <LoadingState/> : <>
           {view === 'Overview' && <><section className="metrics" aria-label="Workspace summary"><Metric label="Protected projects" value={String(registry.projects.length)} detail={`${healthy} healthy · ${registry.projects.length - healthy} need attention`} icon={<Database size={15}/>}/><Metric label="Backups in last 24 hours" value={String(recentBackups.length)} detail={backupDetail} icon={<Activity size={15}/>}/><Metric label="Encrypted storage" value={formatBytes(storageBytes)} detail="Cloudflare R2 · GFS retention" icon={<HardDrive size={15}/>}/></section><section className="notice"><ShieldCheck size={19} aria-hidden="true"/><div><strong>Recovery infrastructure connected</strong><p>Backups are encrypted before upload and catalogued in local PostgreSQL.</p></div><button type="button" onClick={() => setView('Activity')}>View activity →</button></section></>}
           {(view === 'Overview' || view === 'Projects') && (
-            <ProjectTable projects={registry.projects} activities={registry.activities} busyJob={busyJob} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onUpdate={updateProject} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
+            <ProjectTable projects={registry.projects} activities={registry.activities} busyJob={busyJob} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onVerifyRecoveryPoint={verifyRecoveryPoint} onUpdate={updateProject} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
           )}
           {view === 'Planner' && <PlannerPage projects={registry.projects}/>} {view === 'Secrets' && <SecretsPage projects={registry.projects}/>} {view === 'Activity' && <ActivityPage activities={registry.activities} downloadingId={downloadingId} onDownload={downloadBackup}/>} {view === 'Settings' && <SettingsPage/>}
         </>}
