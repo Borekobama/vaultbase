@@ -60,6 +60,7 @@ export interface Project {
   status: ProjectStatus
   secretPath: string
   secretConfigured: boolean
+  directDatabaseSecretConfigured?: boolean
   storageSecretConfigured: boolean
   managementSecretConfigured: boolean
   latestRecoveryPoint: LatestRecoveryPoint | null
@@ -87,6 +88,7 @@ export interface NewProjectInput {
   plan: SupabasePlan
   backupMode: BackupMode
   databaseUrl: string
+  directDatabaseUrl?: string
   backupSchedule: string
   keepAliveSchedule: string
 }
@@ -106,4 +108,9 @@ export interface StorageCredentialsInput {
   region: string
   accessKeyId: string
   secretAccessKey: string
+}
+
+export interface DatabaseCredentialsInput {
+  sessionUrl?: string
+  directUrl?: string
 }

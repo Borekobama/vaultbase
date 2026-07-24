@@ -11,7 +11,7 @@ function key() {
 }
 
 function pathFor(reference: string) {
-  if (!/^supabase\/[a-z0-9-]+\/(database|storage-s3|management-api)$/.test(reference)) throw new Error('Invalid secret reference.')
+  if (!/^supabase\/[a-z0-9-]+\/(database|database-direct|storage-s3|management-api)$/.test(reference)) throw new Error('Invalid secret reference.')
   return join(config.SECRETS_DIRECTORY, `${reference.replaceAll('/', '__')}.enc.json`)
 }
 

@@ -24,6 +24,24 @@ export function validateProject(input: NewProjectInput, existingIds: string[]): 
     errors.databaseUrl = 'Enter a valid PostgreSQL connection string.'
   }
 
+  if (input.directDatabaseUrl?.trim()) {
+    try {
+      const direct = new URL(input.directDatabaseUrl)
+      if (!['postgres:', 'postgresql:'].includes(direct.protocol)) errors.directDatabaseUrl = 'Use a PostgreSQL connection string.'
+      else if (!direct.hostname || !direct.username || !direct.password) errors.directDatabaseUrl = 'The connection string must include a host, username, and password.'
+      else if (!/^db\.[a-z0-9]+\.supabase\.co$/i.test(direct.hostname)) errors.directDatabaseUrl = 'Use the Direct connection from Supabase Connect.'
+      else if (direct.port === '6543') errors.directDatabaseUrl = 'Use Direct port 5432, not Dedicated Pooler port 6543.'
+      else if (decodeURIComponent(direct.username).split('.')[0].toLowerCase() === 'postgres') errors.directDatabaseUrl = 'Use the dedicated vaultbase_backup role, not the powerful default postgres user.'
+      else {
+        const sessionRef = decodeURIComponent(new URL(input.databaseUrl).username).match(/\.([a-z0-9]+)$/i)?.[1]
+        const directRef = direct.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1]
+        if (sessionRef && directRef !== sessionRef) errors.directDatabaseUrl = 'The Direct and Session URLs must belong to the same project.'
+      }
+    } catch {
+      errors.directDatabaseUrl = 'Enter a valid Direct PostgreSQL connection string.'
+    }
+  }
+
   if (!['free', 'pro', 'team'].includes(input.plan)) errors.plan = 'Choose a supported Supabase plan.'
   if (!['database', 'full_project'].includes(input.backupMode)) errors.backupMode = 'Choose a protection mode.'
   return errors

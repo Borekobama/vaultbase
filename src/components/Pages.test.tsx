@@ -10,7 +10,7 @@ describe('SecretsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Customer Portal/ }))
     expect(screen.queryByText('Where to get it')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Instructions for Database connection' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Instructions for Database routes' }))
     expect(screen.getByText(/executes/)).toHaveTextContent('SELECT current_user')
 
     fireEvent.click(screen.getByRole('button', { name: 'Instructions for Storage S3' }))

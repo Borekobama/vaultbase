@@ -1,5 +1,5 @@
 import { seedState } from '../data/seed'
-import type { ActivityItem, LatestRecoveryPoint, NewProjectInput, Project, RecoveryCoverage, RegistryState, RestoreDrill, StorageCredentialsInput, UpdateProjectInput } from '../domain'
+import type { ActivityItem, DatabaseCredentialsInput, LatestRecoveryPoint, NewProjectInput, Project, RecoveryCoverage, RegistryState, RestoreDrill, StorageCredentialsInput, UpdateProjectInput } from '../domain'
 import { normalizeProjectId } from '../lib/validation'
 import { strToU8, zipSync } from 'fflate'
 
@@ -27,6 +27,7 @@ function readState(): RegistryState {
       snapshotCount: project.snapshotCount ?? (project.lastBackupAt ? 1 : 0),
       successfulBackupCount: project.successfulBackupCount ?? (project.lastBackupAt ? 1 : 0),
       failedBackupCount: project.failedBackupCount ?? 0,
+      directDatabaseSecretConfigured: project.directDatabaseSecretConfigured ?? false,
       storageSecretConfigured: project.storageSecretConfigured ?? false,
       managementSecretConfigured: project.managementSecretConfigured ?? false,
       latestRecoveryPoint: project.latestRecoveryPoint ?? null,
@@ -85,6 +86,7 @@ const mockRegistryService = {
       status: 'pending',
       secretPath: `supabase/${id}/database`,
       secretConfigured: true,
+      directDatabaseSecretConfigured: Boolean(input.directDatabaseUrl),
       storageSecretConfigured: false,
       managementSecretConfigured: false,
       latestRecoveryPoint: null,
@@ -105,11 +107,13 @@ const mockRegistryService = {
     return clone(state)
   },
 
-  async updateDatabaseSecret(projectId: string, _databaseUrl: string): Promise<RegistryState> {
+  async updateDatabaseSecret(projectId: string, input: DatabaseCredentialsInput): Promise<RegistryState> {
     const state = readState()
     const project = state.projects.find(item => item.id === projectId)
     if (!project) throw new Error('Project not found.')
+    if (!input.sessionUrl?.trim() && !input.directUrl?.trim()) throw new Error('Enter at least one database route to update.')
     project.secretConfigured = true
+    if (input.directUrl?.trim()) project.directDatabaseSecretConfigured = true
     writeState(state)
     return clone(state)
   },
@@ -296,6 +300,7 @@ function mapState(payload: { projects: Array<Record<string, unknown>>; activitie
       storageBytes: Number(project.storage_bytes), snapshotCount: Number(project.snapshot_count), successfulBackupCount: Number(project.successful_backup_count),
       failedBackupCount: Number(project.failed_backup_count), status: project.status as Project['status'],
       secretPath: String(project.secret_path), secretConfigured: Boolean(project.secret_configured),
+      directDatabaseSecretConfigured: Boolean(project.direct_database_secret_configured),
       storageSecretConfigured: Boolean(project.storage_secret_configured), managementSecretConfigured: Boolean(project.management_secret_configured), latestRecoveryPoint: mapRecoveryPoint(project),
       restoreDrills: mapRestoreDrills(project),
     })),
@@ -320,15 +325,15 @@ const productionRegistryService = {
   async addProject(input: NewProjectInput) {
     const schedules: Record<string, string> = { 'Every 6 hours': '0 */6 * * *', Daily: '0 3 * * *', Weekly: '0 3 * * 0' }
     const keepAlive: Record<string, string> = { 'Every day': '0 9 * * *', 'Every 3 days': '0 9 */3 * *', 'Every 5 days': '0 9 */5 * *' }
-    await api('/api/projects', { method: 'POST', body: JSON.stringify({ displayName: input.name, plan: input.plan, databaseUrl: input.databaseUrl, backupSchedule: schedules[input.backupSchedule] ?? input.backupSchedule, keepAliveSchedule: input.plan === 'free' ? keepAlive[input.keepAliveSchedule] ?? input.keepAliveSchedule : null, backupMode: input.backupMode }) })
+    await api('/api/projects', { method: 'POST', body: JSON.stringify({ displayName: input.name, plan: input.plan, databaseUrl: input.databaseUrl, directDatabaseUrl: input.directDatabaseUrl || undefined, backupSchedule: schedules[input.backupSchedule] ?? input.backupSchedule, keepAliveSchedule: input.plan === 'free' ? keepAlive[input.keepAliveSchedule] ?? input.keepAliveSchedule : null, backupMode: input.backupMode }) })
     return this.load()
   },
   async updateProject(projectId: string, input: UpdateProjectInput) {
     await api(`/api/projects/${encodeURIComponent(projectId)}`, { method: 'PATCH', body: JSON.stringify(input) })
     return this.load()
   },
-  async updateDatabaseSecret(projectId: string, databaseUrl: string) {
-    await api(`/api/projects/${encodeURIComponent(projectId)}/secrets/database`, { method: 'PUT', body: JSON.stringify({ databaseUrl }) })
+  async updateDatabaseSecret(projectId: string, input: DatabaseCredentialsInput) {
+    await api(`/api/projects/${encodeURIComponent(projectId)}/secrets/database`, { method: 'PUT', body: JSON.stringify(input) })
     return this.load()
   },
   async updateStorageSecret(projectId: string, input: StorageCredentialsInput) {

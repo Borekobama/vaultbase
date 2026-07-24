@@ -2,6 +2,7 @@ import { Activity, Archive, CalendarClock, Check, ChevronDown, Database, FlaskCo
 import { type FormEvent, type ReactNode, useState } from 'react'
 import type { ActivityItem, Project, RecoveryCoverage, UpdateProjectInput } from '../domain'
 import { formatBytes, formatDateTime } from '../lib/format'
+import { BackupRoleSqlTemplate } from './BackupRoleSqlTemplate'
 
 interface ProjectTableProps {
   projects: Project[]
@@ -52,6 +53,10 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
               <ProjectFact icon={<HardDrive size={14}/>} label="Measured payload" value={project.storageBytes > 0 ? formatBytes(project.storageBytes) : 'Not measured'} detail={project.storageBytes > 0 ? 'Latest encrypted recovery pack' : 'Calculated after the first export'}/>
             </div>
             <RecoveryReadiness project={project} verifying={verifyRunning} disabled={Boolean(busyJob)} onVerify={() => onVerifyRecoveryPoint(project.id)}/>
+            <details className="project-setup-template">
+              <summary><ShieldCheck size={14} aria-hidden="true"/><span><strong>Backup-role SQL template</strong><small>Keep this here for setup and password rotation</small></span><ChevronDown size={14} aria-hidden="true"/></summary>
+              <div><p>Replace the password placeholder and run this statement in this project’s Supabase SQL Editor.</p><BackupRoleSqlTemplate/></div>
+            </details>
             <footer className="project-record-footer">
               <span><b className="pulse" aria-hidden="true"/>Latest signal</span>
               <strong>{latestActivity?.message ?? 'Project registered; waiting for its first runner event'}</strong>

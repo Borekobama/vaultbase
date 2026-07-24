@@ -4,7 +4,7 @@ import type { NewProjectInput } from '../domain'
 import { normalizeProjectId, type FieldErrors, validateProject } from '../lib/validation'
 import { BackupRoleSqlTemplate } from './BackupRoleSqlTemplate'
 
-const initialInput: NewProjectInput = { name: '', plan: 'free', backupMode: 'database', databaseUrl: '', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
+const initialInput: NewProjectInput = { name: '', plan: 'free', backupMode: 'database', databaseUrl: '', directDatabaseUrl: '', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
 
 interface AddProjectDialogProps {
   open: boolean
@@ -19,7 +19,6 @@ export function AddProjectDialog({ open, existingIds, onClose, onSubmit }: AddPr
   const [errors, setErrors] = useState<FieldErrors>({})
   const [submitting, setSubmitting] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
-  const [connectionRoute, setConnectionRoute] = useState<'session' | 'direct'>('session')
   const projectId = normalizeProjectId(input.name) || 'project-name'
 
   useEffect(() => {
@@ -34,7 +33,6 @@ export function AddProjectDialog({ open, existingIds, onClose, onSubmit }: AddPr
       setInput(initialInput)
       setErrors({})
       setSetupOpen(false)
-      setConnectionRoute('session')
     }
   }, [open])
 
@@ -74,12 +72,17 @@ export function AddProjectDialog({ open, existingIds, onClose, onSubmit }: AddPr
         <button className="role-setup-toggle" type="button" aria-expanded={setupOpen} aria-controls="role-setup-instructions" onClick={() => setSetupOpen(current => !current)}><span className="role-step">1</span><div><strong id="role-setup-title">Create the backup role</strong><small>Run one rerunnable SQL statement in this project</small></div><ChevronDown className={setupOpen ? 'rotated' : ''} size={15} aria-hidden="true"/></button>
         {setupOpen && <div className="role-setup-body" id="role-setup-instructions"><div className="role-safety"><ShieldCheck size={15}/><p>Replace the password placeholder, then run this in the backup project’s SQL Editor. It grants global read access and RLS bypass for complete exports, but no write role.</p></div><BackupRoleSqlTemplate/></div>}
       </section>
-      <div className="connection-step"><span className="role-step">2</span><div><strong>Choose one connection route</strong><small>Both routes reach the same database; Vaultbase needs only one.</small></div></div>
-      <div className="connection-routes" role="group" aria-label="Database connection route"><button type="button" className={connectionRoute === 'session' ? 'selected' : ''} aria-pressed={connectionRoute === 'session'} onClick={() => setConnectionRoute('session')}><strong>Session pooler</strong><small>Recommended · IPv4 · port 5432</small></button><button type="button" className={connectionRoute === 'direct' ? 'selected' : ''} aria-pressed={connectionRoute === 'direct'} onClick={() => setConnectionRoute('direct')}><strong>Direct</strong><small>Native pg_dump · IPv6 · port 5432</small></button></div>
-      <Field label={`${connectionRoute === 'session' ? 'Session pooler' : 'Direct'} connection string`} error={errors.databaseUrl}><input name="databaseUrl" value={input.databaseUrl} onChange={event => update('databaseUrl', event.target.value)} type="password" required autoComplete="new-password" spellCheck={false} placeholder={connectionRoute === 'session' ? 'postgresql://vaultbase_backup.PROJECT_REF:ENCODED_PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres' : 'postgresql://vaultbase_backup:ENCODED_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres'} aria-invalid={Boolean(errors.databaseUrl)}/></Field>
-      <p className="connection-help">{connectionRoute === 'session' ? <>In Supabase, click Connect → Session pooler. Replace <code>postgres</code> with <code>vaultbase_backup</code>, keep <code>.PROJECT_REF</code>, and use the backup-role password.</> : <>In Supabase, click Connect → Direct connection. Replace <code>postgres</code> with <code>vaultbase_backup</code> and use the backup-role password. This route requires IPv6 or Supabase’s IPv4 add-on.</>}</p>
+      <div className="connection-step"><span className="role-step">2</span><div><strong>Add database routes</strong><small>Session is the default. Direct is an optional automatic fallback.</small></div></div>
+      <div className="database-route-field primary-route"><div className="route-heading"><div><strong>Session pooler</strong><small>Default · works over IPv4 · port 5432</small></div><span className="route-state">Required</span></div>
+        <Field label="Session pooler connection string" error={errors.databaseUrl}><input name="databaseUrl" value={input.databaseUrl} onChange={event => update('databaseUrl', event.target.value)} type="password" required autoComplete="new-password" spellCheck={false} placeholder="postgresql://vaultbase_backup.PROJECT_REF:ENCODED_PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres" aria-invalid={Boolean(errors.databaseUrl)}/></Field>
+        <p className="connection-help">Supabase → Connect → Session pooler. Replace <code>postgres</code> with <code>vaultbase_backup</code>, keep <code>.PROJECT_REF</code>, and use the backup-role password.</p>
+      </div>
+      <div className="database-route-field fallback-route"><div className="route-heading"><div><strong>Direct connection</strong><small>Fallback · native pg_dump route · port 5432</small></div><span className="route-state optional">Optional</span></div>
+        <Field label="Direct connection string" error={errors.directDatabaseUrl}><input name="directDatabaseUrl" value={input.directDatabaseUrl} onChange={event => update('directDatabaseUrl', event.target.value)} type="password" autoComplete="new-password" spellCheck={false} placeholder="postgresql://vaultbase_backup:ENCODED_PASSWORD@db.PROJECT_REF.supabase.co:5432/postgres" aria-invalid={Boolean(errors.directDatabaseUrl)}/></Field>
+        <p className="connection-help">Used only if Session cannot be reached. It requires IPv6 connectivity or Supabase’s IPv4 add-on; leave it empty otherwise.</p>
+      </div>
       <div className="form-grid"><Field label="Backup schedule"><select name="backupSchedule" value={input.backupSchedule} onChange={event => update('backupSchedule', event.target.value)}><option>Every 6 hours</option><option>Daily</option><option>Weekly</option></select></Field><Field label="Keep-alive"><select name="keepAliveSchedule" value={input.keepAliveSchedule} onChange={event => update('keepAliveSchedule', event.target.value)}><option>Every day</option><option>Every 3 days</option><option>Every 5 days</option></select></Field></div>
-      <div className="secret-note"><KeyRound size={15} aria-hidden="true"/><span>Encrypted secret: <code>supabase/{projectId}/database</code></span></div>
+      <div className="secret-note"><KeyRound size={15} aria-hidden="true"/><span>Encrypted route slots: <code>supabase/{projectId}/database</code> and optional <code>database-direct</code></span></div>
       <button className="primary wide" type="submit" disabled={submitting}>{submitting ? 'Validating…' : 'Add project'}</button>
     </form>
   </dialog>

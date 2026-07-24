@@ -2,7 +2,6 @@ import express from 'express'
 import helmet from 'helmet'
 import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
-import { Client } from 'pg'
 import { Cron } from 'croner'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { dirname, join } from 'node:path'
@@ -19,9 +18,9 @@ import { runKeepAlive } from './keep-alive.js'
 import { JobAlreadyRunningError } from './job-lock.js'
 import { cleanupStaleWorkDirectories } from './work-directory.js'
 import { enqueueBackup, getJob, resumeManualJobs } from './manual-jobs.js'
-import { verifiedDatabaseSsl, withoutSslQueryParameters } from './database-ssl.js'
 import { validateManagementCredentials } from './management-sync.js'
 import { type StorageSecret, validateStorageCredentials } from './storage-sync.js'
+import { validateDatabaseConnection } from './database-credentials.js'
 
 const app = express()
 const sessions = new Map<string, number>()
@@ -131,6 +130,7 @@ app.get('/api/state', async (_request, response) => {
   const [projects, activities] = await Promise.all([
     localPool.query(`SELECT p.id, p.display_name, p.environment, p.notes, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
       p.created_at, p.last_backup_at, p.measured_dump_bytes storage_bytes, p.status, p.secret_ref secret_path, true secret_configured,
+      EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='database_direct') direct_database_secret_configured,
       EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='storage_s3') storage_secret_configured,
       EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='management_api') management_secret_configured,
       stats.latest_backup_attempt_at, stats.snapshot_count, stats.successful_backup_count, stats.failed_backup_count,
@@ -173,24 +173,27 @@ app.get('/api/state', async (_request, response) => {
 app.put('/api/projects/:id/secrets/database', async (request, response, next) => {
   try {
     const id = normalizeProjectId(request.params.id)
-    const { databaseUrl } = z.object({ databaseUrl: z.string().trim().min(20).max(2048) }).parse(request.body)
-    const parsed = parseSupabaseDatabaseUrl(databaseUrl)
+    const routes = z.object({
+      sessionUrl: z.string().trim().min(20).max(2048).optional(),
+      directUrl: z.string().trim().min(20).max(2048).optional(),
+    }).refine(value => value.sessionUrl || value.directUrl, 'Enter at least one database route to update.').parse(request.body)
     const project = await localPool.query('SELECT project_ref, secret_ref FROM vaultbase.projects WHERE id=$1', [id])
     if (!project.rowCount) return response.status(404).json({ error: 'Project not found.' })
-    if (project.rows[0].project_ref !== parsed.projectRef) return response.status(400).json({ error: 'That connection string belongs to a different Supabase project.' })
-    const hostname = new URL(databaseUrl).hostname
-    const client = new Client({
-      connectionString: withoutSslQueryParameters(databaseUrl),
-      ssl: ['localhost', '127.0.0.1'].includes(hostname) ? false : verifiedDatabaseSsl(),
-      connectionTimeoutMillis: 15_000,
-      query_timeout: 15_000,
-      application_name: 'vaultbase-credential-check',
-    })
-    try {
-      await client.connect()
-      await client.query('SELECT current_user')
-    } finally { await client.end().catch(() => undefined) }
-    await secretStore.put(project.rows[0].secret_ref, databaseUrl)
+    const parsedSession = routes.sessionUrl ? parseSupabaseDatabaseUrl(routes.sessionUrl) : null
+    const parsedDirect = routes.directUrl ? parseSupabaseDatabaseUrl(routes.directUrl) : null
+    if (parsedSession && parsedSession.connectionType !== 'session_pooler') return response.status(400).json({ error: 'The Session field must contain the Session Pooler URL on port 5432.' })
+    if (parsedDirect && parsedDirect.connectionType !== 'direct') return response.status(400).json({ error: 'The Direct field must contain the db.PROJECT_REF.supabase.co URL on port 5432.' })
+    if ([parsedSession, parsedDirect].some(parsed => parsed && project.rows[0].project_ref !== parsed.projectRef)) return response.status(400).json({ error: 'That connection string belongs to a different Supabase project.' })
+    await Promise.all([
+      routes.sessionUrl ? validateDatabaseConnection(routes.sessionUrl, 'vaultbase-session-credential-check') : Promise.resolve(),
+      routes.directUrl ? validateDatabaseConnection(routes.directUrl, 'vaultbase-direct-credential-check') : Promise.resolve(),
+    ])
+    if (routes.sessionUrl) await secretStore.put(project.rows[0].secret_ref, routes.sessionUrl)
+    if (routes.directUrl) {
+      const directReference = `supabase/${id}/database-direct`
+      await secretStore.put(directReference, routes.directUrl)
+      await localPool.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'database_direct',$2) ON CONFLICT (project_id,kind) DO UPDATE SET secret_ref=excluded.secret_ref, configured_at=now()`, [id, directReference])
+    }
     await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id) VALUES ('api-token','secret.database.updated','project',$1)`, [id])
     response.status(204).end()
   } catch (error) {
@@ -242,14 +245,26 @@ app.put('/api/projects/:id/secrets/management', async (request, response, next) 
 })
 
 app.post('/api/projects', async (request, response, next) => {
-  let secretRef: string | null = null
-  let wroteSecret = false
+  const writtenSecretRefs: string[] = []
   try {
     const input = projectInputSchema.parse(request.body)
     const id = normalizeProjectId(input.displayName)
     if (!id) return response.status(400).json({ error: 'Project name must contain letters or numbers.' })
     const parsed = parseSupabaseDatabaseUrl(input.databaseUrl)
-    secretRef = `supabase/${id}/database`
+    if (parsed.connectionType !== 'session_pooler') return response.status(400).json({ error: 'Use the Session Pooler URL on port 5432 as the default database route.' })
+    const parsedDirect = input.directDatabaseUrl ? parseSupabaseDatabaseUrl(input.directDatabaseUrl) : null
+    if (parsedDirect?.connectionType !== 'direct') return response.status(400).json({ error: 'The optional fallback must be the Direct db.PROJECT_REF.supabase.co URL on port 5432.' })
+    if (parsedDirect && parsedDirect.projectRef !== parsed.projectRef) return response.status(400).json({ error: 'The Session and Direct URLs belong to different Supabase projects.' })
+    try {
+      await Promise.all([
+        validateDatabaseConnection(input.databaseUrl, 'vaultbase-session-credential-check'),
+        input.directDatabaseUrl ? validateDatabaseConnection(input.directDatabaseUrl, 'vaultbase-direct-credential-check') : Promise.resolve(),
+      ])
+    } catch (error) {
+      return response.status(400).json({ error: `The database routes could not be verified: ${error instanceof Error ? error.message : 'connection failed'}` })
+    }
+    const secretRef = `supabase/${id}/database`
+    const directSecretRef = input.directDatabaseUrl ? `supabase/${id}/database-direct` : null
     const client = await localPool.connect()
     try {
       await client.query('BEGIN')
@@ -260,12 +275,17 @@ app.post('/api/projects', async (request, response, next) => {
         return response.status(409).json({ error: 'That project name or Supabase reference is already registered.' })
       }
       await secretStore.put(secretRef, input.databaseUrl)
-      wroteSecret = true
+      writtenSecretRefs.push(secretRef)
+      if (input.directDatabaseUrl && directSecretRef) {
+        await secretStore.put(directSecretRef, input.directDatabaseUrl)
+        writtenSecretRefs.push(directSecretRef)
+      }
       const result = await client.query(`INSERT INTO vaultbase.projects(id, project_ref, display_name, region, plan, backup_schedule, keep_alive_schedule, backup_mode, secret_ref)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         RETURNING id, project_ref, display_name, region, plan, enabled, backup_schedule, keep_alive_schedule, backup_mode, secret_ref, status, created_at`,
         [id, parsed.projectRef, input.displayName, parsed.region, input.plan, input.backupSchedule, input.keepAliveSchedule, input.backupMode, secretRef])
       await client.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token', 'project.created', 'project', $1, $2)`, [id, { connectionType: parsed.connectionType }])
+      if (directSecretRef) await client.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'database_direct',$2)`, [id, directSecretRef])
       await client.query('COMMIT')
       response.status(201).json(result.rows[0])
     } catch (error) {
@@ -273,7 +293,7 @@ app.post('/api/projects', async (request, response, next) => {
       throw error
     } finally { client.release() }
   } catch (error) {
-    if (wroteSecret && secretRef) await secretStore.remove(secretRef).catch(() => undefined)
+    await Promise.all(writtenSecretRefs.map(reference => secretStore.remove(reference).catch(() => undefined)))
     if (error instanceof z.ZodError) return response.status(400).json({ error: 'Invalid project details.', issues: error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })) })
     if (error instanceof Error && (error.message.includes('connection string') || error.message.includes('Session Pooler') || error.message.includes('project reference') || error.message.includes('[YOUR-PASSWORD]'))) return response.status(400).json({ error: error.message })
     next(error)

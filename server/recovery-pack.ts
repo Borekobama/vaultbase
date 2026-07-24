@@ -5,12 +5,12 @@ import { basename, join } from 'node:path'
 import { config } from './config.js'
 import { localPool } from './db.js'
 import { runProcess } from './process.js'
-import { secretStore } from './secret-store.js'
 import { syncStorageObjects } from './storage-sync.js'
 import { withJobLock } from './job-lock.js'
 import { createWorkDirectory } from './work-directory.js'
 import { postgresSslEnvironment } from './database-ssl.js'
 import { syncManagementConfiguration } from './management-sync.js'
+import { resolveDatabaseConnection } from './database-credentials.js'
 
 const excludedManagedSchemas = ['auth', 'storage', 'extensions', 'graphql', 'graphql_public', 'supabase_functions', 'realtime', '_analytics', '_realtime']
 
@@ -57,7 +57,8 @@ async function createRecoveryPackUnlocked(projectId: string) {
   try {
     let storageObjects = { configured: false, objects: 0 }
     let managementConfiguration = { configured: false, captured: 0, warnings: [] as string[] }
-    const databaseUrl = await secretStore.get(project.secret_ref)
+    const directReference = `supabase/${projectId}/database-direct`
+    const { databaseUrl, route: databaseRoute } = await resolveDatabaseConnection(project.secret_ref, directReference)
     const env = postgresEnvironment(databaseUrl)
     const pgDump = join(config.PG_BIN_DIRECTORY, 'pg_dump')
     const pgDumpAll = join(config.PG_BIN_DIRECTORY, 'pg_dumpall')
@@ -105,7 +106,7 @@ async function createRecoveryPackUnlocked(projectId: string) {
       ...(!coverage.managementApi && project.backup_mode === 'full_project' ? ['Management API configuration requires a read-scoped access token.'] : []),
       ...managementConfiguration.warnings,
     ]
-    const manifest = { version: 2, snapshotId, projectId, projectRef: project.project_ref, mode: project.backup_mode, createdAt: startedAt.toISOString(), files, coverage, storageObjectCount: storageObjects.objects, complete: project.backup_mode === 'database' || warnings.length === 0, warnings }
+    const manifest = { version: 2, snapshotId, projectId, projectRef: project.project_ref, mode: project.backup_mode, databaseRoute, createdAt: startedAt.toISOString(), files, coverage, storageObjectCount: storageObjects.objects, complete: project.backup_mode === 'database' || warnings.length === 0, warnings }
     await writeFile(join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
 
     const r2 = await parseEnvironmentFile(config.R2_ENV_FILE)

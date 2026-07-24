@@ -44,6 +44,20 @@ describe('Supabase database connection parsing', () => {
     expect(result.success).toBe(true)
   })
 
+  it('accepts a matching optional Direct fallback', () => {
+    const result = projectInputSchema.safeParse({
+      displayName: 'Example project', plan: 'free',
+      databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres',
+      directDatabaseUrl: 'postgresql://vaultbase_backup:password@db.abcdefghijkl.supabase.co:5432/postgres',
+      backupSchedule: '0 3 * * *', keepAliveSchedule: null, backupMode: 'database',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects the dedicated transaction pooler as a Direct route', () => {
+    expect(() => parseSupabaseDatabaseUrl('postgresql://vaultbase_backup:password@db.abcdefghijkl.supabase.co:6543/postgres')).toThrow(/Direct connection.*5432/i)
+  })
+
   it('validates editable project profile details', () => {
     expect(projectUpdateSchema.safeParse({
       displayName: 'Customer Production',

@@ -17,6 +17,12 @@ describe('project validation', () => {
     expect(validateProject({ ...valid, databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres' }, [])).toEqual({})
   })
 
+  it('accepts a matching Direct fallback and rejects a mismatched one', () => {
+    expect(validateProject({ ...valid, directDatabaseUrl: 'postgresql://vaultbase_backup:password@db.abcdefghijkl.supabase.co:5432/postgres' }, [])).toEqual({})
+    const errors = validateProject({ ...valid, directDatabaseUrl: 'postgresql://vaultbase_backup:password@db.differentref.supabase.co:5432/postgres' }, [])
+    expect(errors.directDatabaseUrl).toMatch(/same project/i)
+  })
+
   it('rejects the default postgres credential', () => {
     const errors = validateProject({ ...valid, databaseUrl: 'postgresql://postgres.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres' }, [])
     expect(errors.databaseUrl).toMatch(/vaultbase_backup/i)

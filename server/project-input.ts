@@ -15,6 +15,7 @@ export const projectInputSchema = z.object({
   displayName: z.string().trim().min(2).max(80),
   plan: z.enum(['free', 'pro', 'team', 'enterprise']),
   databaseUrl: z.string().trim().min(20).max(2048),
+  directDatabaseUrl: z.string().trim().min(20).max(2048).optional(),
   backupSchedule: cronExpression.default('0 3 * * *'),
   keepAliveSchedule: cronExpression.nullable().default(null),
   backupMode: z.enum(['database', 'full_project']).default('database'),
@@ -44,6 +45,7 @@ export function parseSupabaseDatabaseUrl(raw: string) {
   if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error('The connection string must use PostgreSQL.')
   if (!url.password || url.password === '[YOUR-PASSWORD]') throw new Error('Replace [YOUR-PASSWORD] with the database password.')
   if (url.hostname.endsWith('.pooler.supabase.com') && url.port === '6543') throw new Error('Use the Session Pooler on port 5432 for backups, not Transaction mode on port 6543.')
+  if (/^db\.[a-z0-9]+\.supabase\.co$/i.test(url.hostname) && url.port === '6543') throw new Error('Use the Direct connection on port 5432, not the Dedicated Pooler on port 6543.')
 
   const poolerRef = decodeURIComponent(url.username).match(/^[a-z_][a-z0-9_-]*\.([a-z0-9]+)$/i)?.[1]
   const directRef = url.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1]
