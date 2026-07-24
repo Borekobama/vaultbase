@@ -49,6 +49,8 @@ export function parseSupabaseDatabaseUrl(raw: string) {
   const directRef = url.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1]
   const projectRef = poolerRef ?? directRef
   if (!projectRef) throw new Error('Could not derive the Supabase project reference from this connection string.')
+  const databaseRole = decodeURIComponent(url.username).split('.')[0].toLowerCase()
+  if (databaseRole === 'postgres') throw new Error('Do not give Vaultbase the default postgres credential. Use the dedicated vaultbase_backup role.')
   const region = url.hostname.match(/^aws-\d+-([a-z]+-[a-z]+-\d+)\.pooler\.supabase\.com$/i)?.[1] ?? null
 
   return { projectRef, region, connectionType: url.hostname.includes('.pooler.supabase.com') ? 'session_pooler' : 'direct' as const }

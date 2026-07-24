@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeProjectId, validateProject } from './validation'
 
-const valid = { name: 'Customer Portal', plan: 'free' as const, backupMode: 'database' as const, databaseUrl: 'postgresql://postgres.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
+const valid = { name: 'Customer Portal', plan: 'free' as const, backupMode: 'database' as const, databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
 
 describe('project validation', () => {
   it('normalizes human names into stable ids', () => {
@@ -15,6 +15,11 @@ describe('project validation', () => {
 
   it('accepts a dedicated backup role through the session pooler', () => {
     expect(validateProject({ ...valid, databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres' }, [])).toEqual({})
+  })
+
+  it('rejects the default postgres credential', () => {
+    const errors = validateProject({ ...valid, databaseUrl: 'postgresql://postgres.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres' }, [])
+    expect(errors.databaseUrl).toMatch(/vaultbase_backup/i)
   })
 
   it('rejects duplicate names and incomplete secrets', () => {
