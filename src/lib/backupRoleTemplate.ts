@@ -26,7 +26,12 @@ BEGIN
 
   GRANT CONNECT ON DATABASE postgres TO vaultbase_backup;
   GRANT pg_read_all_data TO vaultbase_backup;
-  REVOKE pg_write_all_data FROM vaultbase_backup;
+
+  IF pg_has_role('vaultbase_backup', 'pg_write_all_data', 'MEMBER') THEN
+    RAISE EXCEPTION
+      'vaultbase_backup already inherits pg_write_all_data. Remove that membership with an administrator before using this role.';
+  END IF;
+
   REVOKE CREATE ON DATABASE postgres FROM vaultbase_backup;
   REVOKE CREATE ON SCHEMA public FROM vaultbase_backup;
 
