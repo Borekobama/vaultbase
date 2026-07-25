@@ -20,7 +20,7 @@ import { cleanupStaleWorkDirectories } from './work-directory.js'
 import { enqueueBackup, getJob, resumeManualJobs } from './manual-jobs.js'
 import { validateManagementCredentials } from './management-sync.js'
 import { type StorageSecret, validateStorageCredentials } from './storage-sync.js'
-import { validateDatabaseConnection } from './database-credentials.js'
+import { databaseConnectionError, validateDatabaseConnection } from './database-credentials.js'
 
 const app = express()
 const sessions = new Map<string, number>()
@@ -184,10 +184,20 @@ app.put('/api/projects/:id/secrets/database', async (request, response, next) =>
     if (parsedSession && parsedSession.connectionType !== 'session_pooler') return response.status(400).json({ error: 'The Session field must contain the Session Pooler URL on port 5432.' })
     if (parsedDirect && parsedDirect.connectionType !== 'direct') return response.status(400).json({ error: 'The Direct field must contain the db.PROJECT_REF.supabase.co URL on port 5432.' })
     if ([parsedSession, parsedDirect].some(parsed => parsed && project.rows[0].project_ref !== parsed.projectRef)) return response.status(400).json({ error: 'That connection string belongs to a different Supabase project.' })
-    await Promise.all([
-      routes.sessionUrl ? validateDatabaseConnection(routes.sessionUrl, 'vaultbase-session-credential-check') : Promise.resolve(),
-      routes.directUrl ? validateDatabaseConnection(routes.directUrl, 'vaultbase-direct-credential-check') : Promise.resolve(),
-    ])
+    if (routes.sessionUrl) {
+      try {
+        await validateDatabaseConnection(routes.sessionUrl, 'vaultbase-session-credential-check')
+      } catch (error) {
+        return response.status(400).json({ error: `The Session Pooler route could not be verified: ${databaseConnectionError(error)}.` })
+      }
+    }
+    if (routes.directUrl) {
+      try {
+        await validateDatabaseConnection(routes.directUrl, 'vaultbase-direct-credential-check')
+      } catch (error) {
+        return response.status(400).json({ error: `The optional Direct fallback could not be verified: ${databaseConnectionError(error)}. Leave Direct blank to keep using Session only.` })
+      }
+    }
     if (routes.sessionUrl) await secretStore.put(project.rows[0].secret_ref, routes.sessionUrl)
     if (routes.directUrl) {
       const directReference = `supabase/${id}/database-direct`
@@ -256,12 +266,16 @@ app.post('/api/projects', async (request, response, next) => {
     if (parsedDirect?.connectionType !== 'direct') return response.status(400).json({ error: 'The optional fallback must be the Direct db.PROJECT_REF.supabase.co URL on port 5432.' })
     if (parsedDirect && parsedDirect.projectRef !== parsed.projectRef) return response.status(400).json({ error: 'The Session and Direct URLs belong to different Supabase projects.' })
     try {
-      await Promise.all([
-        validateDatabaseConnection(input.databaseUrl, 'vaultbase-session-credential-check'),
-        input.directDatabaseUrl ? validateDatabaseConnection(input.directDatabaseUrl, 'vaultbase-direct-credential-check') : Promise.resolve(),
-      ])
+      await validateDatabaseConnection(input.databaseUrl, 'vaultbase-session-credential-check')
     } catch (error) {
-      return response.status(400).json({ error: `The database routes could not be verified: ${error instanceof Error ? error.message : 'connection failed'}` })
+      return response.status(400).json({ error: `The Session Pooler route could not be verified: ${databaseConnectionError(error)}.` })
+    }
+    if (input.directDatabaseUrl) {
+      try {
+        await validateDatabaseConnection(input.directDatabaseUrl, 'vaultbase-direct-credential-check')
+      } catch (error) {
+        return response.status(400).json({ error: `The optional Direct fallback could not be verified: ${databaseConnectionError(error)}. Disable “Add Direct fallback” to continue with the working Session route.` })
+      }
     }
     const secretRef = `supabase/${id}/database`
     const directSecretRef = input.directDatabaseUrl ? `supabase/${id}/database-direct` : null

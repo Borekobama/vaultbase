@@ -12,9 +12,30 @@ export interface DatabaseRouteUrls {
 }
 
 export const DEFAULT_POOLER_REGION = 'aws-0-eu-west-1'
+const PROJECT_REF_PATTERN = /^[a-z0-9]{8,64}$/
 
 function encode(value: string) {
   return encodeURIComponent(value)
+}
+
+export function normalizeSupabaseProjectRef(value: string) {
+  let normalized = value.trim().toLowerCase()
+  if (!normalized) return ''
+
+  if (normalized.includes('://')) {
+    try {
+      const url = new URL(normalized)
+      normalized = url.hostname
+    } catch {
+      return ''
+    }
+  }
+
+  normalized = normalized
+    .replace(/^db\./, '')
+    .replace(/\.supabase\.co$/, '')
+
+  return PROJECT_REF_PATTERN.test(normalized) ? normalized : ''
 }
 
 export function poolerHostname(value: string) {
@@ -23,7 +44,7 @@ export function poolerHostname(value: string) {
 }
 
 export function buildDatabaseRoutes(fields: DatabaseRouteFields): DatabaseRouteUrls {
-  const projectRef = fields.projectRef.trim().toLowerCase()
+  const projectRef = normalizeSupabaseProjectRef(fields.projectRef)
   const databaseUser = fields.databaseUser.trim()
   const password = fields.password
   const poolerRegion = fields.poolerRegion.trim()

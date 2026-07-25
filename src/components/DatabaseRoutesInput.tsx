@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Braces, Check, Link2 } from 'lucide-react'
-import { buildDatabaseRoutes, DEFAULT_POOLER_REGION, type DatabaseRouteFields, type DatabaseRouteUrls } from '../lib/databaseRoutes'
+import { buildDatabaseRoutes, DEFAULT_POOLER_REGION, normalizeSupabaseProjectRef, type DatabaseRouteFields, type DatabaseRouteUrls } from '../lib/databaseRoutes'
 
 interface DatabaseRoutesInputProps {
   value: DatabaseRouteUrls
@@ -20,7 +20,7 @@ export function DatabaseRoutesInput({
     databaseUser: 'vaultbase_backup',
     password: '',
     poolerRegion: DEFAULT_POOLER_REGION,
-    includeDirect: true,
+    includeDirect: false,
   })
 
   const updateFields = <Key extends keyof DatabaseRouteFields>(key: Key, nextValue: DatabaseRouteFields[Key]) => {
@@ -35,6 +35,11 @@ export function DatabaseRoutesInput({
     else onChange({ sessionUrl: '', directUrl: '' })
   }
 
+  const normalizeProjectRef = () => {
+    const normalized = normalizeSupabaseProjectRef(fields.projectRef)
+    if (normalized && normalized !== fields.projectRef) updateFields('projectRef', normalized)
+  }
+
   return <div className="database-route-input">
     <div className="input-mode-switch" role="group" aria-label="Database credential entry method">
       <button type="button" className={mode === 'fields' ? 'selected' : ''} aria-pressed={mode === 'fields'} onClick={() => selectMode('fields')}><Braces size={13}/><span>Build from fields</span></button>
@@ -43,12 +48,12 @@ export function DatabaseRoutesInput({
 
     {mode === 'fields' ? <div className="route-builder">
       <div className="route-builder-grid">
-        <label className="field"><span>Project reference</span><input value={fields.projectRef} onChange={event => updateFields('projectRef', event.target.value)} readOnly={Boolean(fixedProjectRef)} required placeholder="abcdefghijklmnopqrst" autoComplete="off"/><small>Found in Supabase → Project Settings → General.</small></label>
+        <label className="field"><span>Project reference</span><input value={fields.projectRef} onChange={event => updateFields('projectRef', event.target.value)} onBlur={normalizeProjectRef} readOnly={Boolean(fixedProjectRef)} required placeholder="abcdefghijklmnopqrst" autoComplete="off"/><small>Enter the plain reference. A pasted <code>db.PROJECT_REF</code> or Direct hostname is cleaned automatically.</small></label>
         <label className="field"><span>Database user</span><input value={fields.databaseUser} onChange={event => updateFields('databaseUser', event.target.value)} required placeholder="vaultbase_backup" autoComplete="username"/><small>Use the role created by the Vaultbase SQL template.</small></label>
         <label className="field route-password"><span>Backup-role password</span><input type="password" value={fields.password} onChange={event => updateFields('password', event.target.value)} required autoComplete="new-password" placeholder="Password set in the SQL template"/><small>This is not your main Supabase database password.</small></label>
         <label className="field route-region"><span>Session pooler region</span><div className="input-suffix"><input value={fields.poolerRegion} onChange={event => updateFields('poolerRegion', event.target.value)} required spellCheck={false}/><span>.pooler.supabase.com</span></div><small>Default: {DEFAULT_POOLER_REGION}. Replace it with the value shown under Supabase → Connect.</small></label>
       </div>
-      <label className="direct-route-option"><input type="checkbox" checked={fields.includeDirect} onChange={event => updateFields('includeDirect', event.target.checked)}/><span><strong>Add Direct fallback</strong><small>Generated from the same project, user, and password. Requires IPv6 or Supabase’s IPv4 add-on.</small></span></label>
+      <label className="direct-route-option"><input type="checkbox" checked={fields.includeDirect} onChange={event => updateFields('includeDirect', event.target.checked)}/><span><strong>Add Direct fallback</strong><small>Optional. Enable only when this Vaultbase host can reach IPv6, or the project has Supabase’s IPv4 add-on.</small></span></label>
       <div className="generated-routes" aria-live="polite">
         <span className={value.sessionUrl ? 'ready' : ''}>{value.sessionUrl && <Check size={11}/>}Session {value.sessionUrl ? 'ready' : 'needs fields'}</span>
         <span className={value.directUrl ? 'ready' : ''}>{value.directUrl && <Check size={11}/>}Direct {fields.includeDirect ? value.directUrl ? 'ready' : 'needs fields' : 'omitted'}</span>

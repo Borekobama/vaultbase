@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDatabaseRoutes, poolerHostname } from './databaseRoutes'
+import { buildDatabaseRoutes, normalizeSupabaseProjectRef, poolerHostname } from './databaseRoutes'
 
 describe('database route builder', () => {
   it('builds Session and Direct URLs with the backup-role password safely encoded', () => {
@@ -25,5 +25,26 @@ describe('database route builder', () => {
       projectRef: 'abcdefghijkl', databaseUser: 'vaultbase_backup', password: 'password',
       poolerRegion: 'aws-0-eu-west-1', includeDirect: false,
     }).directUrl).toBe('')
+  })
+
+  it('normalizes plain references, Direct prefixes, hostnames, and URLs', () => {
+    const ref = 'nqeojmclpvjuwpuoqqcy'
+    expect(normalizeSupabaseProjectRef(ref)).toBe(ref)
+    expect(normalizeSupabaseProjectRef(`db.${ref}`)).toBe(ref)
+    expect(normalizeSupabaseProjectRef(`db.${ref}.supabase.co`)).toBe(ref)
+    expect(normalizeSupabaseProjectRef(`postgresql://user:password@db.${ref}.supabase.co:5432/postgres`)).toBe(ref)
+  })
+
+  it('does not duplicate the db prefix when a prefixed reference is pasted', () => {
+    const result = buildDatabaseRoutes({
+      projectRef: 'db.nqeojmclpvjuwpuoqqcy',
+      databaseUser: 'vaultbase_backup',
+      password: 'password',
+      poolerRegion: 'aws-0-eu-west-1',
+      includeDirect: true,
+    })
+    expect(result.sessionUrl).toContain('vaultbase_backup.nqeojmclpvjuwpuoqqcy')
+    expect(result.directUrl).toContain('@db.nqeojmclpvjuwpuoqqcy.supabase.co')
+    expect(result.directUrl).not.toContain('@db.db.')
   })
 })

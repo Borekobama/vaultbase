@@ -19,6 +19,21 @@ export async function validateDatabaseConnection(databaseUrl: string, applicatio
   }
 }
 
+export function databaseConnectionError(error: unknown) {
+  const message = error instanceof Error ? error.message : 'connection failed'
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : ''
+  if (code === 'ENOTFOUND' || /getaddrinfo ENOTFOUND/i.test(message)) {
+    return 'the hostname has no DNS record reachable from this server'
+  }
+  if (code === 'ENETUNREACH' || /network is unreachable/i.test(message)) {
+    return 'the route is IPv6-only, but this Vaultbase server cannot reach IPv6'
+  }
+  if (code === 'ETIMEDOUT' || /timed out|timeout/i.test(message)) {
+    return 'the connection timed out'
+  }
+  return message
+}
+
 export async function resolveDatabaseConnection(primaryReference: string, directReference?: string | null) {
   const candidates = [
     { route: 'session', reference: primaryReference },
