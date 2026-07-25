@@ -34,11 +34,15 @@ export function databaseConnectionError(error: unknown) {
   return message
 }
 
-export async function resolveDatabaseConnection(primaryReference: string, directReference?: string | null) {
-  const candidates = [
+export function databaseRouteCandidates(primaryReference: string, directReference: string | null | undefined, directConfigured: boolean) {
+  return [
+    ...(directReference && directConfigured ? [{ route: 'direct', reference: directReference }] : []),
     { route: 'session', reference: primaryReference },
-    ...(directReference && await secretStore.has(directReference) ? [{ route: 'direct', reference: directReference }] : []),
   ]
+}
+
+export async function resolveDatabaseConnection(primaryReference: string, directReference?: string | null) {
+  const candidates = databaseRouteCandidates(primaryReference, directReference, Boolean(directReference && await secretStore.has(directReference)))
   const failures: string[] = []
   for (const candidate of candidates) {
     const databaseUrl = await secretStore.get(candidate.reference)

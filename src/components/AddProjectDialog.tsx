@@ -73,7 +73,7 @@ export function AddProjectDialog({ open, existingIds, onClose, onSubmit }: AddPr
         <button className="role-setup-toggle" type="button" aria-expanded={setupOpen} aria-controls="role-setup-instructions" onClick={() => setSetupOpen(current => !current)}><span className="role-step">1</span><div><strong id="role-setup-title">Create the backup role</strong><small>Run one rerunnable SQL statement in this project</small></div><ChevronDown className={setupOpen ? 'rotated' : ''} size={15} aria-hidden="true"/></button>
         {setupOpen && <div className="role-setup-body" id="role-setup-instructions"><div className="role-safety"><ShieldCheck size={15}/><p>Replace the password placeholder, then run this in the backup project’s SQL Editor. It grants global read access and RLS bypass for complete exports, but no write role.</p></div><BackupRoleSqlTemplate/></div>}
       </section>
-      <div className="connection-step"><span className="role-step">2</span><div><strong>Add database routes</strong><small>Session is the default. Direct is an optional automatic fallback.</small></div></div>
+      <div className="connection-step"><span className="role-step">2</span><div><strong>Add database routes</strong><small>Direct is preferred for backups when reachable. Session provides the IPv4 fallback.</small></div></div>
       <DatabaseRoutesInput
         value={{ sessionUrl: input.databaseUrl, directUrl: input.directDatabaseUrl ?? '' }}
         onChange={routes => {

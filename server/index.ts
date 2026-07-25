@@ -195,7 +195,7 @@ app.put('/api/projects/:id/secrets/database', async (request, response, next) =>
       try {
         await validateDatabaseConnection(routes.directUrl, 'vaultbase-direct-credential-check')
       } catch (error) {
-        return response.status(400).json({ error: `The optional Direct fallback could not be verified: ${databaseConnectionError(error)}. Leave Direct blank to keep using Session only.` })
+        return response.status(400).json({ error: `The optional Direct route could not be verified: ${databaseConnectionError(error)}. Leave Direct blank to keep using Session only.` })
       }
     }
     if (routes.sessionUrl) await secretStore.put(project.rows[0].secret_ref, routes.sessionUrl)
@@ -263,7 +263,7 @@ app.post('/api/projects', async (request, response, next) => {
     const parsed = parseSupabaseDatabaseUrl(input.databaseUrl)
     if (parsed.connectionType !== 'session_pooler') return response.status(400).json({ error: 'Use the Session Pooler URL on port 5432 as the default database route.' })
     const parsedDirect = input.directDatabaseUrl ? parseSupabaseDatabaseUrl(input.directDatabaseUrl) : null
-    if (parsedDirect?.connectionType !== 'direct') return response.status(400).json({ error: 'The optional fallback must be the Direct db.PROJECT_REF.supabase.co URL on port 5432.' })
+    if (parsedDirect?.connectionType !== 'direct') return response.status(400).json({ error: 'The optional Direct route must use db.PROJECT_REF.supabase.co on port 5432.' })
     if (parsedDirect && parsedDirect.projectRef !== parsed.projectRef) return response.status(400).json({ error: 'The Session and Direct URLs belong to different Supabase projects.' })
     try {
       await validateDatabaseConnection(input.databaseUrl, 'vaultbase-session-credential-check')
@@ -274,7 +274,7 @@ app.post('/api/projects', async (request, response, next) => {
       try {
         await validateDatabaseConnection(input.directDatabaseUrl, 'vaultbase-direct-credential-check')
       } catch (error) {
-        return response.status(400).json({ error: `The optional Direct fallback could not be verified: ${databaseConnectionError(error)}. Disable “Add Direct fallback” to continue with the working Session route.` })
+        return response.status(400).json({ error: `The optional Direct route could not be verified: ${databaseConnectionError(error)}. Disable “Add Direct route” to continue with the working Session route.` })
       }
     }
     const secretRef = `supabase/${id}/database`

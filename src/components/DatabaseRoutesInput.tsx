@@ -20,7 +20,7 @@ export function DatabaseRoutesInput({
     databaseUser: 'vaultbase_backup',
     password: '',
     poolerRegion: DEFAULT_POOLER_REGION,
-    includeDirect: false,
+    includeDirect: true,
   })
 
   const updateFields = <Key extends keyof DatabaseRouteFields>(key: Key, nextValue: DatabaseRouteFields[Key]) => {
@@ -53,7 +53,7 @@ export function DatabaseRoutesInput({
         <label className="field route-password"><span>Backup-role password</span><input type="password" value={fields.password} onChange={event => updateFields('password', event.target.value)} required autoComplete="new-password" placeholder="Password set in the SQL template"/><small>This is not your main Supabase database password.</small></label>
         <label className="field route-region"><span>Session pooler region</span><div className="input-suffix"><input value={fields.poolerRegion} onChange={event => updateFields('poolerRegion', event.target.value)} required spellCheck={false}/><span>.pooler.supabase.com</span></div><small>Default: {DEFAULT_POOLER_REGION}. Replace it with the value shown under Supabase → Connect.</small></label>
       </div>
-      <label className="direct-route-option"><input type="checkbox" checked={fields.includeDirect} onChange={event => updateFields('includeDirect', event.target.checked)}/><span><strong>Add Direct fallback</strong><small>Optional. Enable only when this Vaultbase host can reach IPv6, or the project has Supabase’s IPv4 add-on.</small></span></label>
+      <label className="direct-route-option"><input type="checkbox" checked={fields.includeDirect} onChange={event => updateFields('includeDirect', event.target.checked)}/><span><strong>Add Direct route</strong><small>Preferred for backups. Requires IPv6 or Supabase’s IPv4 add-on; Session remains the fallback.</small></span></label>
       <div className="generated-routes" aria-live="polite">
         <span className={value.sessionUrl ? 'ready' : ''}>{value.sessionUrl && <Check size={11}/>}Session {value.sessionUrl ? 'ready' : 'needs fields'}</span>
         <span className={value.directUrl ? 'ready' : ''}>{value.directUrl && <Check size={11}/>}Direct {fields.includeDirect ? value.directUrl ? 'ready' : 'needs fields' : 'omitted'}</span>
