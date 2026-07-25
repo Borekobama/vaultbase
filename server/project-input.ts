@@ -69,3 +69,7 @@ export function parseSupabaseDatabaseUrl(raw: string) {
 
   return { projectRef, region, connectionType: url.hostname.includes('.pooler.supabase.com') ? 'session_pooler' : 'direct' as const }
 }
+
+export function invalidOptionalDirectRoute(parsed: ReturnType<typeof parseSupabaseDatabaseUrl> | null) {
+  return parsed !== null && parsed.connectionType !== 'direct'
+}

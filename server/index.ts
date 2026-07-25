@@ -10,7 +10,7 @@ import { config } from './config.js'
 import { localPool } from './db.js'
 import { migrate } from './migrate.js'
 import { syncMirror } from './mirror.js'
-import { normalizeProjectId, parseSupabaseDatabaseUrl, projectInputSchema, projectUpdateSchema } from './project-input.js'
+import { invalidOptionalDirectRoute, normalizeProjectId, parseSupabaseDatabaseUrl, projectInputSchema, projectUpdateSchema } from './project-input.js'
 import { secretStore } from './secret-store.js'
 import { streamSnapshotDownload } from './snapshot-download.js'
 import { verifyResticSnapshot } from './verify-recovery.js'
@@ -20,7 +20,7 @@ import { cleanupStaleWorkDirectories } from './work-directory.js'
 import { enqueueBackup, getJob, resumeManualJobs } from './manual-jobs.js'
 import { validateManagementCredentials } from './management-sync.js'
 import { type StorageSecret, validateStorageCredentials } from './storage-sync.js'
-import { databaseConnectionError, validateDatabaseConnection } from './database-credentials.js'
+import { databaseConnectionError, isDatabaseRouteUnavailable, validateDatabaseConnection } from './database-credentials.js'
 
 const app = express()
 const sessions = new Map<string, number>()
@@ -263,7 +263,7 @@ app.post('/api/projects', async (request, response, next) => {
     const parsed = parseSupabaseDatabaseUrl(input.databaseUrl)
     if (parsed.connectionType !== 'session_pooler') return response.status(400).json({ error: 'Use the Session Pooler URL on port 5432 as the default database route.' })
     const parsedDirect = input.directDatabaseUrl ? parseSupabaseDatabaseUrl(input.directDatabaseUrl) : null
-    if (parsedDirect?.connectionType !== 'direct') return response.status(400).json({ error: 'The optional Direct route must use db.PROJECT_REF.supabase.co on port 5432.' })
+    if (invalidOptionalDirectRoute(parsedDirect)) return response.status(400).json({ error: 'The optional Direct route must use db.PROJECT_REF.supabase.co on port 5432.' })
     if (parsedDirect && parsedDirect.projectRef !== parsed.projectRef) return response.status(400).json({ error: 'The Session and Direct URLs belong to different Supabase projects.' })
     if (input.storageCredentials) {
       const endpoint = new URL(input.storageCredentials.endpoint)
@@ -281,15 +281,21 @@ app.post('/api/projects', async (request, response, next) => {
     } catch (error) {
       return response.status(400).json({ error: `The Session Pooler route could not be verified: ${databaseConnectionError(error)}.` })
     }
-    if (input.directDatabaseUrl) {
+    let verifiedDirectDatabaseUrl = input.directDatabaseUrl
+    let directRouteWarning: string | null = null
+    if (verifiedDirectDatabaseUrl) {
       try {
-        await validateDatabaseConnection(input.directDatabaseUrl, 'vaultbase-direct-credential-check')
+        await validateDatabaseConnection(verifiedDirectDatabaseUrl, 'vaultbase-direct-credential-check')
       } catch (error) {
-        return response.status(400).json({ error: `The optional Direct route could not be verified: ${databaseConnectionError(error)}. Disable “Add Direct route” to continue with the working Session route.` })
+        if (!isDatabaseRouteUnavailable(error)) {
+          return response.status(400).json({ error: `The optional Direct route could not be verified: ${databaseConnectionError(error)}.` })
+        }
+        directRouteWarning = `The Direct route was unreachable (${databaseConnectionError(error)}), so the project was configured with the verified Session route only.`
+        verifiedDirectDatabaseUrl = undefined
       }
     }
     const secretRef = `supabase/${id}/database`
-    const directSecretRef = input.directDatabaseUrl ? `supabase/${id}/database-direct` : null
+    const directSecretRef = verifiedDirectDatabaseUrl ? `supabase/${id}/database-direct` : null
     const storageSecretRef = input.storageCredentials ? `supabase/${id}/storage-s3` : null
     const client = await localPool.connect()
     try {
@@ -302,8 +308,8 @@ app.post('/api/projects', async (request, response, next) => {
       }
       await secretStore.put(secretRef, input.databaseUrl)
       writtenSecretRefs.push(secretRef)
-      if (input.directDatabaseUrl && directSecretRef) {
-        await secretStore.put(directSecretRef, input.directDatabaseUrl)
+      if (verifiedDirectDatabaseUrl && directSecretRef) {
+        await secretStore.put(directSecretRef, verifiedDirectDatabaseUrl)
         writtenSecretRefs.push(directSecretRef)
       }
       if (input.storageCredentials && storageSecretRef) {
@@ -314,11 +320,11 @@ app.post('/api/projects', async (request, response, next) => {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         RETURNING id, project_ref, display_name, owner_email, region, plan, enabled, backup_schedule, keep_alive_schedule, backup_mode, secret_ref, status, created_at`,
         [id, parsed.projectRef, input.displayName, input.ownerEmail, parsed.region, input.plan, input.backupSchedule, input.keepAliveSchedule, input.backupMode, secretRef])
-      await client.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token', 'project.created', 'project', $1, $2)`, [id, { connectionType: parsed.connectionType, storageConfigured: Boolean(storageSecretRef) }])
+      await client.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token', 'project.created', 'project', $1, $2)`, [id, { connectionType: parsed.connectionType, directConfigured: Boolean(directSecretRef), directRouteWarning, storageConfigured: Boolean(storageSecretRef) }])
       if (directSecretRef) await client.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'database_direct',$2)`, [id, directSecretRef])
       if (storageSecretRef) await client.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'storage_s3',$2)`, [id, storageSecretRef])
       await client.query('COMMIT')
-      response.status(201).json(result.rows[0])
+      response.status(201).json({ ...result.rows[0], warning: directRouteWarning })
     } catch (error) {
       await client.query('ROLLBACK')
       throw error

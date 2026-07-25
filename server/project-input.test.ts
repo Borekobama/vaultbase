@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSupabaseDatabaseUrl, projectInputSchema, projectUpdateSchema } from './project-input'
+import { invalidOptionalDirectRoute, parseSupabaseDatabaseUrl, projectInputSchema, projectUpdateSchema } from './project-input'
 
 describe('Supabase database connection parsing', () => {
   it('derives the project reference and region from a session pooler URL', () => {
@@ -66,6 +66,26 @@ describe('Supabase database connection parsing', () => {
       backupSchedule: '0 3 * * *', keepAliveSchedule: null, backupMode: 'database',
     })
     expect(result.success).toBe(true)
+  })
+
+  it('accepts a project without the optional Direct route', () => {
+    const result = projectInputSchema.safeParse({
+      displayName: 'Session only project', plan: 'pro',
+      databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres',
+      backupSchedule: '0 3 * * *', keepAliveSchedule: null, backupMode: 'full_project',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.directDatabaseUrl).toBeUndefined()
+  })
+
+  it('does not reject an omitted optional Direct route', () => {
+    expect(invalidOptionalDirectRoute(null)).toBe(false)
+    expect(invalidOptionalDirectRoute(parseSupabaseDatabaseUrl(
+      'postgresql://vaultbase_backup:password@db.abcdefghijkl.supabase.co:5432/postgres',
+    ))).toBe(false)
+    expect(invalidOptionalDirectRoute(parseSupabaseDatabaseUrl(
+      'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres',
+    ))).toBe(true)
   })
 
   it('rejects the dedicated transaction pooler as a Direct route', () => {

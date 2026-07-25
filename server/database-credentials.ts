@@ -34,6 +34,13 @@ export function databaseConnectionError(error: unknown) {
   return message
 }
 
+export function isDatabaseRouteUnavailable(error: unknown) {
+  const message = error instanceof Error ? error.message : ''
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : ''
+  return ['ENOTFOUND', 'ENETUNREACH', 'EHOSTUNREACH', 'ETIMEDOUT'].includes(code)
+    || /getaddrinfo ENOTFOUND|network is unreachable|no route to host|timed out|timeout/i.test(message)
+}
+
 export function databaseRouteCandidates(primaryReference: string, directReference: string | null | undefined, directConfigured: boolean) {
   return [
     ...(directReference && directConfigured ? [{ route: 'direct', reference: directReference }] : []),
