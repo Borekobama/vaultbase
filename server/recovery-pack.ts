@@ -42,7 +42,7 @@ async function parseEnvironmentFile(path: string) {
   return values
 }
 
-async function createRecoveryPackUnlocked(projectId: string) {
+async function createRecoveryPackUnlocked(projectId: string, triggerSource: 'manual' | 'scheduled') {
   const projectResult = await localPool.query('SELECT id, project_ref, backup_mode, secret_ref FROM vaultbase.projects WHERE id=$1 AND enabled=true', [projectId])
   if (!projectResult.rowCount) throw new Error('Enabled project not found.')
   const project = projectResult.rows[0]
@@ -52,7 +52,7 @@ async function createRecoveryPackUnlocked(projectId: string) {
   const databaseDirectory = join(directory, 'database')
   const { mkdir } = await import('node:fs/promises')
   await mkdir(databaseDirectory, { mode: 0o700 })
-  await localPool.query(`INSERT INTO vaultbase.snapshots(id, project_id, status, components, started_at) VALUES ($1,$2,'running',$3,$4)`, [snapshotId, projectId, { database: 'running' }, startedAt])
+  await localPool.query(`INSERT INTO vaultbase.snapshots(id, project_id, status, components, trigger_source, started_at) VALUES ($1,$2,'running',$3,$4,$5)`, [snapshotId, projectId, { database: 'running' }, triggerSource, startedAt])
 
   try {
     let storageObjects = { configured: false, objects: 0 }
@@ -106,7 +106,7 @@ async function createRecoveryPackUnlocked(projectId: string) {
       ...(!coverage.managementApi && project.backup_mode === 'full_project' ? ['Management API configuration requires a read-scoped access token.'] : []),
       ...managementConfiguration.warnings,
     ]
-    const manifest = { version: 2, snapshotId, projectId, projectRef: project.project_ref, mode: project.backup_mode, databaseRoute, createdAt: startedAt.toISOString(), files, coverage, storageObjectCount: storageObjects.objects, complete: project.backup_mode === 'database' || warnings.length === 0, warnings }
+    const manifest = { version: 2, snapshotId, projectId, projectRef: project.project_ref, mode: project.backup_mode, triggerSource, databaseRoute, createdAt: startedAt.toISOString(), files, coverage, storageObjectCount: storageObjects.objects, complete: project.backup_mode === 'database' || warnings.length === 0, warnings }
     await writeFile(join(directory, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 })
 
     const r2 = await parseEnvironmentFile(config.R2_ENV_FILE)
@@ -128,6 +128,6 @@ async function createRecoveryPackUnlocked(projectId: string) {
   } finally { await rm(directory, { recursive: true, force: true }) }
 }
 
-export function createRecoveryPack(projectId: string) {
-  return withJobLock(`backup:${projectId}`, () => createRecoveryPackUnlocked(projectId))
+export function createRecoveryPack(projectId: string, triggerSource: 'manual' | 'scheduled' = 'scheduled') {
+  return withJobLock(`backup:${projectId}`, () => createRecoveryPackUnlocked(projectId, triggerSource))
 }

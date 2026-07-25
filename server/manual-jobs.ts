@@ -13,7 +13,7 @@ async function executeBackupJob(jobId: string) {
     if (!claimed.rowCount) return
     const projectId = claimed.rows[0].project_id as string
     try {
-      const result = await createRecoveryPack(projectId)
+      const result = await createRecoveryPack(projectId, 'manual')
       const payload = { snapshotId: result.snapshotId, resticSnapshotId: result.resticSnapshotId, bytes: result.dumpBytes }
       await localPool.query(`UPDATE vaultbase.jobs SET status='success', result=$2, completed_at=now() WHERE id=$1`, [jobId, payload])
       await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token','backup.manual.completed','project',$1,$2)`, [projectId, { jobId, snapshotId: result.snapshotId }])

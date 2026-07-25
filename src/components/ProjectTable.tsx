@@ -1,6 +1,6 @@
-import { Activity, Archive, CalendarClock, Check, ChevronDown, Database, FlaskConical, HardDrive, Minus, Pencil, Play, RotateCw, ShieldCheck, TriangleAlert, X } from 'lucide-react'
-import { type FormEvent, type ReactNode, useState } from 'react'
-import type { ActivityItem, Project, RecoveryCoverage, UpdateProjectInput } from '../domain'
+import { Activity, Archive, CalendarClock, Check, ChevronDown, Clock3, Database, Download, FlaskConical, HardDrive, Layers3, Minus, Pencil, Play, RotateCw, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
+import type { ActivityItem, BackupSnapshot, Project, RecoveryCoverage, UpdateProjectInput } from '../domain'
 import { formatBytes, formatDateTime } from '../lib/format'
 import { BackupRoleSqlTemplate } from './BackupRoleSqlTemplate'
 
@@ -8,9 +8,13 @@ interface ProjectTableProps {
   projects: Project[]
   activities: ActivityItem[]
   busyJob: string | null
+  downloadingId: string | null
+  showBackupArchive: boolean
   onRunBackup: (projectId: string) => void
   onRunKeepAlive: (projectId: string) => void
   onVerifyRecoveryPoint: (projectId: string) => void
+  onListBackups: (projectId: string) => Promise<BackupSnapshot[]>
+  onDownloadBackup: (snapshotId: string) => void
   onUpdate: (projectId: string, input: UpdateProjectInput) => Promise<void>
   onRefresh: () => void
   onAdd: () => void
@@ -23,7 +27,7 @@ const scheduleLabel: Record<string, string> = {
   '0 3 * * 0': 'Sunday at 03:00',
 }
 
-export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRunKeepAlive, onVerifyRecoveryPoint, onUpdate, onRefresh, onAdd }: ProjectTableProps) {
+export function ProjectTable({ projects, activities, busyJob, downloadingId, showBackupArchive, onRunBackup, onRunKeepAlive, onVerifyRecoveryPoint, onListBackups, onDownloadBackup, onUpdate, onRefresh, onAdd }: ProjectTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   return <section className="panel" aria-labelledby="projects-title">
@@ -53,6 +57,7 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
               <ProjectFact icon={<HardDrive size={14}/>} label="Measured payload" value={project.storageBytes > 0 ? formatBytes(project.storageBytes) : 'Not measured'} detail={project.storageBytes > 0 ? 'Latest encrypted recovery pack' : 'Calculated after the first export'}/>
             </div>
             <RecoveryReadiness project={project} verifying={verifyRunning} disabled={Boolean(busyJob)} onVerify={() => onVerifyRecoveryPoint(project.id)}/>
+            {showBackupArchive && <BackupArchive project={project} downloadingId={downloadingId} onList={onListBackups} onDownload={onDownloadBackup}/>}
             <details className="project-setup-template">
               <summary><ShieldCheck size={14} aria-hidden="true"/><span><strong>Backup-role SQL template</strong><small>Keep this here for setup and password rotation</small></span><ChevronDown size={14} aria-hidden="true"/></summary>
               <div><p>Replace the password placeholder and run this statement in this project’s Supabase SQL Editor.</p><BackupRoleSqlTemplate/></div>
@@ -69,6 +74,94 @@ export function ProjectTable({ projects, activities, busyJob, onRunBackup, onRun
       </div>
       <div className="table-footer"><span>{projects.length} protected {projects.length === 1 ? 'project' : 'projects'}</span><span>Runner: <strong>Docker service</strong> <i aria-hidden="true"/></span></div>
     </>}
+  </section>
+}
+
+const backupStatusLabel: Record<BackupSnapshot['status'], string> = {
+  running: 'In progress',
+  uploaded: 'Available',
+  verified: 'Verified',
+  restore_verified: 'Restore tested',
+  failed: 'Failed',
+  expired: 'Expired',
+}
+
+const archiveCoverageLabels: Array<{ key: keyof RecoveryCoverage; label: string }> = [
+  { key: 'database', label: 'Database' },
+  { key: 'roles', label: 'Roles' },
+  { key: 'auth', label: 'Auth' },
+  { key: 'storageMetadata', label: 'Storage catalog' },
+  { key: 'storageObjects', label: 'Object files' },
+  { key: 'configuration', label: 'Schema config' },
+  { key: 'managementApi', label: 'Platform config' },
+]
+
+function BackupArchive({ project, downloadingId, onList, onDownload }: {
+  project: Project
+  downloadingId: string | null
+  onList: (projectId: string) => Promise<BackupSnapshot[]>
+  onDownload: (snapshotId: string) => void
+}) {
+  const [snapshots, setSnapshots] = useState<BackupSnapshot[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showAll, setShowAll] = useState(false)
+
+  useEffect(() => {
+    let current = true
+    setLoading(true)
+    void onList(project.id)
+      .then(result => {
+        if (!current) return
+        setSnapshots([...result].sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt)))
+        setError(null)
+      })
+      .catch(reason => {
+        if (current) setError(reason instanceof Error ? reason.message : 'Backup history could not be loaded.')
+      })
+      .finally(() => {
+        if (current) setLoading(false)
+      })
+    return () => { current = false }
+  }, [onList, project.id, project.snapshotCount])
+
+  const visible = showAll ? snapshots : snapshots.slice(0, 5)
+  return <section className="backup-archive" aria-labelledby={`backup-archive-${project.id}`}>
+    <div className="backup-archive-heading">
+      <div><span>Recovery archive</span><strong id={`backup-archive-${project.id}`}>Backup history</strong><small>Newest recovery points appear first</small></div>
+      <span className="archive-count">{snapshots.length || project.snapshotCount} {snapshots.length === 1 || (!snapshots.length && project.snapshotCount === 1) ? 'entry' : 'entries'}</span>
+    </div>
+    {loading ? <div className="archive-loading" role="status"><span className="spinner" aria-hidden="true"/>Loading encrypted recovery points…</div>
+      : error ? <div className="archive-error" role="alert"><TriangleAlert size={14}/>{error}</div>
+      : snapshots.length === 0 ? <div className="archive-empty"><Archive size={18}/><div><strong>No backups yet</strong><small>Run the first backup to create a downloadable recovery point.</small></div></div>
+      : <div className="backup-timeline">
+        {visible.map(snapshot => {
+          const included = archiveCoverageLabels.filter(item => snapshot.coverage[item.key])
+          const downloading = downloadingId === snapshot.id
+          return <article className={`backup-entry ${snapshot.status}`} key={snapshot.id}>
+            <div className="timeline-rail" aria-hidden="true"><span/></div>
+            <div className="backup-entry-main">
+              <div className="backup-entry-title">
+                <time dateTime={snapshot.startedAt}>{formatDateTime(snapshot.startedAt)}</time>
+                <span className={`source-tag ${snapshot.triggerSource}`}>{snapshot.triggerSource === 'manual' ? 'Manual' : 'Scheduled'}</span>
+                <span className={`snapshot-status ${snapshot.status}`}>{backupStatusLabel[snapshot.status]}</span>
+              </div>
+              <div className="backup-entry-context">
+                <span><Layers3 size={11}/>{snapshot.mode === 'full_project' ? 'Full project' : 'Database only'}</span>
+                {snapshot.databaseRoute && <span><Database size={11}/>{snapshot.databaseRoute === 'direct' ? 'Direct route' : 'Session route'}</span>}
+                <span><Clock3 size={11}/>{snapshot.fileCount} {snapshot.fileCount === 1 ? 'file' : 'files'}</span>
+              </div>
+              <div className="backup-components" aria-label="Included backup components">
+                {included.length > 0 ? included.map(item => <span key={item.key}><Check size={9}/>{item.label}</span>) : <span className="muted">Component inventory unavailable</span>}
+              </div>
+              {(snapshot.errorSummary || snapshot.warnings[0]) && <p className={snapshot.errorSummary ? 'snapshot-error-copy' : 'snapshot-warning-copy'}>{snapshot.errorSummary ?? snapshot.warnings[0]}</p>}
+            </div>
+            <div className="backup-entry-size"><strong>{snapshot.bytes > 0 ? formatBytes(snapshot.bytes) : '—'}</strong><small>{snapshot.completedAt ? 'Backup payload' : 'Calculating'}</small></div>
+            <button className="quiet action-button backup-download" type="button" disabled={!snapshot.downloadable || Boolean(downloadingId)} onClick={() => onDownload(snapshot.id)} aria-label={`Download backup from ${formatDateTime(snapshot.startedAt)}`}><Download size={13}/>{downloading ? 'Preparing…' : snapshot.downloadable ? 'Download' : backupStatusLabel[snapshot.status]}</button>
+          </article>
+        })}
+      </div>}
+    {snapshots.length > 5 && <button className="archive-more" type="button" onClick={() => setShowAll(current => !current)}>{showAll ? 'Show latest 5' : `Show all ${snapshots.length} backups`}<ChevronDown className={showAll ? 'rotated' : ''} size={13}/></button>}
   </section>
 }
 

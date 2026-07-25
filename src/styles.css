@@ -171,6 +171,54 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .drill-history time { display: flex; align-items: center; gap: 6px; color: #74817b; font-size: 8px; }
 .drill-history svg { color: var(--green); }
 .drill-action { width: 100%; margin-top: auto; padding-top: 8px; padding-bottom: 8px; }
+.backup-archive { border-bottom: 1px solid #292b2e; background: #181a1b; }
+.backup-archive-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 17px 20px 14px; border-bottom: 1px solid #2a2d2f; }
+.backup-archive-heading > div > span { display: block; margin-bottom: 5px; color: #82928b; font-size: 9px; font-weight: 650; letter-spacing: .07em; text-transform: uppercase; }
+.backup-archive-heading strong { display: inline; color: #d8dfdb; font-size: 12px; font-weight: 600; }
+.backup-archive-heading small { margin-left: 9px; color: #727e78; font-size: 9px; }
+.archive-count { flex: 0 0 auto; padding: 4px 7px; border: 1px solid #3b4340; border-radius: 3px; color: #91a099; background: #202321; font-size: 9px; }
+.archive-loading, .archive-error, .archive-empty { min-height: 82px; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 18px 20px; color: #849089; font-size: 10px; }
+.archive-error { color: #e6a5a5; }
+.archive-empty { justify-content: flex-start; padding-left: 22px; }
+.archive-empty > svg { color: #66736d; }
+.archive-empty strong, .archive-empty small { display: block; }
+.archive-empty strong { color: #bfc8c3; font-size: 10px; font-weight: 550; }
+.archive-empty small { margin-top: 4px; color: #727e78; font-size: 9px; }
+.backup-timeline { padding: 0 20px; }
+.backup-entry { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 100px auto; align-items: center; gap: 18px; min-height: 104px; padding: 15px 0 15px 25px; border-bottom: 1px solid #292c2e; }
+.backup-entry:last-child { border-bottom: 0; }
+.timeline-rail { position: absolute; inset: 0 auto 0 0; width: 11px; }
+.timeline-rail::before { content: ''; position: absolute; inset: 0 auto 0 5px; width: 1px; background: #343a37; }
+.timeline-rail span { position: absolute; z-index: 1; top: 23px; left: 1px; width: 9px; height: 9px; border: 2px solid #18221e; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 1px #3c755a; }
+.backup-entry.failed .timeline-rail span { background: var(--red); box-shadow: 0 0 0 1px #754545; }
+.backup-entry.running .timeline-rail span { background: var(--amber); box-shadow: 0 0 0 1px #765a34; }
+.backup-entry.expired .timeline-rail span { background: #62696d; box-shadow: 0 0 0 1px #4b5155; }
+.backup-entry-main { min-width: 0; }
+.backup-entry-title { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.backup-entry-title time { color: #d4dbd7; font-size: 11px; font-weight: 560; }
+.source-tag, .snapshot-status { display: inline-flex; min-height: 18px; align-items: center; padding: 0 6px; border-radius: 3px; font-size: 8px; font-weight: 650; letter-spacing: .045em; text-transform: uppercase; }
+.source-tag { color: #a9c5e7; background: #22374d; }
+.source-tag.manual { color: #e1c393; background: #493820; }
+.snapshot-status { color: #99d5b4; background: #20392d; }
+.snapshot-status.failed { color: #efaaaa; background: #452728; }
+.snapshot-status.running { color: #e7c181; background: #44341f; }
+.snapshot-status.expired { color: #9ca3a7; background: #303336; }
+.backup-entry-context { display: flex; align-items: center; flex-wrap: wrap; gap: 11px; margin-top: 8px; color: #77847e; font-size: 8px; }
+.backup-entry-context span { display: inline-flex; align-items: center; gap: 4px; }
+.backup-components { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.backup-components span { display: inline-flex; align-items: center; gap: 3px; padding: 3px 5px; border: 1px solid #314139; border-radius: 3px; color: #91a89c; background: #1b2521; font-size: 8px; }
+.backup-components span.muted { color: #72797c; border-color: #34373a; background: #202224; }
+.backup-components svg { color: var(--green); }
+.snapshot-error-copy, .snapshot-warning-copy { margin: 8px 0 0; color: #e5a1a1; font-size: 8px; line-height: 1.45; }
+.snapshot-warning-copy { color: #bca078; }
+.backup-entry-size { text-align: right; }
+.backup-entry-size strong, .backup-entry-size small { display: block; }
+.backup-entry-size strong { color: #cbd3cf; font-size: 11px; font-weight: 560; }
+.backup-entry-size small { margin-top: 4px; color: #707b75; font-size: 8px; }
+.backup-download { min-width: 91px; }
+.archive-more { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-top: 1px solid #292c2e; color: #8d9b94; background: #1b1d1e; font-size: 9px; }
+.archive-more:hover { color: #c0ccc6; background: #202322; }
+.archive-more svg { transition: transform .18s ease; }
 .project-record-footer { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 10px 18px 10px 20px; color: var(--text-subtle); font-size: 10px; }
 .project-record-footer > span:first-child { display: inline-flex; align-items: center; gap: 7px; color: #93a29c; font-weight: 550; }
 .project-record-footer .pulse { width: 5px; height: 5px; }
@@ -484,6 +532,13 @@ tbody tr:last-child td { border-bottom: 0; }
   .coverage-item { min-height: 57px; }
   .drill-pane { min-height: 190px; padding: 16px 15px 15px 17px; }
   .drill-action { min-height: 42px; margin-top: 16px; }
+  .backup-archive-heading { align-items: flex-start; padding: 15px 15px 13px 17px; }
+  .backup-archive-heading small { display: block; margin: 4px 0 0; }
+  .backup-timeline { padding: 0 15px 0 17px; }
+  .backup-entry { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 15px 0 15px 22px; }
+  .backup-entry-size { grid-column: 1; padding-left: 0; text-align: left; }
+  .backup-download { grid-column: 2; grid-row: 2; min-height: 40px; }
+  .backup-entry-context { gap: 8px; }
   .project-record-footer { align-items: flex-start; flex-wrap: wrap; padding: 11px 15px 12px 17px; }
   .project-record-footer strong { flex: 1 1 calc(100% - 90px); }
   .project-record-footer time { margin-left: 14px; }

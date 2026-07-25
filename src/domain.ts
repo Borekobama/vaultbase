@@ -37,6 +37,24 @@ export interface RestoreDrill {
   filesVerified: number | null
 }
 
+export interface BackupSnapshot {
+  id: string
+  projectId: string
+  status: 'running' | 'uploaded' | 'verified' | 'restore_verified' | 'failed' | 'expired'
+  triggerSource: 'manual' | 'scheduled'
+  mode: BackupMode
+  databaseRoute: 'direct' | 'session' | null
+  startedAt: string
+  completedAt: string | null
+  expiresAt: string | null
+  bytes: number
+  fileCount: number
+  coverage: RecoveryCoverage
+  warnings: string[]
+  errorSummary: string | null
+  downloadable: boolean
+}
+
 export interface Project {
   id: string
   displayName: string

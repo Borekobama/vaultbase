@@ -119,6 +119,25 @@ export default function App() {
     }
   }
 
+  const downloadSnapshot = async (snapshotId: string) => {
+    if (downloadingId) return
+    setDownloadingId(snapshotId)
+    try {
+      const download = await registry.downloadSnapshot(snapshotId)
+      const url = URL.createObjectURL(download.blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = download.filename
+      anchor.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
+      notify('Recovery archive downloaded.')
+    } catch (reason) {
+      notify(reason instanceof Error ? reason.message : 'The backup could not be downloaded.')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
   return <div className="shell">
     <a className="skip-link" href="#main-content">Skip to content</a>
     <Sidebar view={view} activityCount={registry.activities.length} onNavigate={setView}/>
@@ -130,7 +149,7 @@ export default function App() {
         {registry.loading ? <LoadingState/> : <>
           {view === 'Overview' && <><section className="metrics" aria-label="Workspace summary"><Metric label="Protected projects" value={String(registry.projects.length)} detail={`${healthy} healthy · ${registry.projects.length - healthy} need attention`} icon={<Database size={15}/>}/><Metric label="Backups in last 24 hours" value={String(recentBackups.length)} detail={backupDetail} icon={<Activity size={15}/>}/><Metric label="Encrypted storage" value={formatBytes(storageBytes)} detail="Cloudflare R2 · GFS retention" icon={<HardDrive size={15}/>}/></section><section className="notice"><ShieldCheck size={19} aria-hidden="true"/><div><strong>Recovery infrastructure connected</strong><p>Backups are encrypted before upload and catalogued in local PostgreSQL.</p></div><button type="button" onClick={() => setView('Activity')}>View activity →</button></section></>}
           {(view === 'Overview' || view === 'Projects') && (
-            <ProjectTable key={view} projects={registry.projects} activities={registry.activities} busyJob={busyJob} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onVerifyRecoveryPoint={verifyRecoveryPoint} onUpdate={updateProject} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
+            <ProjectTable key={view} projects={registry.projects} activities={registry.activities} busyJob={busyJob} downloadingId={downloadingId} showBackupArchive={view === 'Projects'} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onVerifyRecoveryPoint={verifyRecoveryPoint} onListBackups={registry.listProjectBackups} onDownloadBackup={downloadSnapshot} onUpdate={updateProject} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
           )}
           {view === 'Planner' && <PlannerPage projects={registry.projects}/>} {view === 'Secrets' && <SecretsPage projects={registry.projects} onUpdateDatabase={async (id, value: DatabaseCredentialsInput) => { await registry.updateDatabaseSecret(id, value); notify('Database routes verified and saved.') }} onUpdateStorage={async (id, value: StorageCredentialsInput) => { await registry.updateStorageSecret(id, value); notify('Storage S3 credentials verified and saved.') }} onUpdateManagement={async (id, value) => { await registry.updateManagementSecret(id, value); notify('Management API token verified and saved.') }}/>} {view === 'Activity' && <ActivityPage activities={registry.activities} downloadingId={downloadingId} onDownload={downloadBackup}/>} {view === 'Settings' && <SettingsPage/>}
         </>}

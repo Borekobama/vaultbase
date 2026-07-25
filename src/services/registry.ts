@@ -1,5 +1,5 @@
 import { seedState } from '../data/seed'
-import type { ActivityItem, DatabaseCredentialsInput, LatestRecoveryPoint, NewProjectInput, Project, RecoveryCoverage, RegistryState, RestoreDrill, StorageCredentialsInput, UpdateProjectInput } from '../domain'
+import type { ActivityItem, BackupSnapshot, DatabaseCredentialsInput, LatestRecoveryPoint, NewProjectInput, Project, RecoveryCoverage, RegistryState, RestoreDrill, StorageCredentialsInput, UpdateProjectInput } from '../domain'
 import { normalizeProjectId } from '../lib/validation'
 import { strToU8, zipSync } from 'fflate'
 
@@ -237,6 +237,44 @@ const mockRegistryService = {
     return { blob: new Blob([archive], { type: 'application/zip' }), filename: `vaultbase-${project.id}-${timestamp}-mock.zip` }
   },
 
+  async listProjectBackups(projectId: string): Promise<BackupSnapshot[]> {
+    await delay(180)
+    const state = readState()
+    const project = state.projects.find(item => item.id === projectId)
+    if (!project) throw new Error('Project not found.')
+    return state.activities
+      .filter(item => item.projectId === projectId && item.type === 'backup')
+      .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
+      .map((activity, index) => {
+        const point = index === 0 ? project.latestRecoveryPoint : null
+        return {
+          id: activity.id,
+          projectId,
+          status: activity.status === 'success' ? 'uploaded' : 'failed',
+          triggerSource: 'manual',
+          mode: project.backupMode,
+          databaseRoute: project.directDatabaseSecretConfigured ? 'direct' : 'session',
+          startedAt: activity.occurredAt,
+          completedAt: activity.occurredAt,
+          expiresAt: null,
+          bytes: activity.bytes ?? 0,
+          fileCount: point?.fileCount ?? (project.backupMode === 'full_project' ? 7 : 3),
+          coverage: point?.coverage ?? {
+            database: true, roles: true, auth: project.backupMode === 'full_project',
+            storageMetadata: project.backupMode === 'full_project', storageObjects: false,
+            configuration: project.backupMode === 'full_project', managementApi: false,
+          },
+          warnings: point?.warnings ?? [],
+          errorSummary: activity.status === 'failed' ? activity.message : null,
+          downloadable: activity.status === 'success',
+        } satisfies BackupSnapshot
+      })
+  },
+
+  async downloadSnapshot(snapshotId: string) {
+    return this.downloadBackup(snapshotId)
+  },
+
   async reset(): Promise<RegistryState> {
     localStorage.removeItem(STORAGE_KEY)
     await delay(80)
@@ -286,6 +324,42 @@ function mapRestoreDrills(project: Record<string, unknown>): RestoreDrill[] {
       filesVerified: finiteNumber(details.files),
     }
   })
+}
+
+function mapSnapshot(snapshot: Record<string, unknown>): BackupSnapshot {
+  const components = (snapshot.components ?? {}) as {
+    mode?: BackupSnapshot['mode']
+    databaseRoute?: BackupSnapshot['databaseRoute']
+    files?: unknown[]
+    coverage?: Partial<RecoveryCoverage>
+    warnings?: unknown[]
+  }
+  const coverage = components.coverage ?? {}
+  return {
+    id: String(snapshot.id),
+    projectId: String(snapshot.project_id),
+    status: snapshot.status as BackupSnapshot['status'],
+    triggerSource: snapshot.trigger_source === 'manual' ? 'manual' : 'scheduled',
+    mode: components.mode === 'full_project' ? 'full_project' : 'database',
+    databaseRoute: components.databaseRoute === 'direct' || components.databaseRoute === 'session' ? components.databaseRoute : null,
+    startedAt: String(snapshot.started_at),
+    completedAt: snapshot.completed_at ? String(snapshot.completed_at) : null,
+    expiresAt: snapshot.expires_at ? String(snapshot.expires_at) : null,
+    bytes: Number(snapshot.dump_bytes ?? 0),
+    fileCount: components.files?.length ?? 0,
+    coverage: {
+      database: Boolean(coverage.database),
+      roles: Boolean(coverage.roles),
+      auth: Boolean(coverage.auth),
+      storageMetadata: Boolean(coverage.storageMetadata),
+      storageObjects: Boolean(coverage.storageObjects),
+      configuration: Boolean(coverage.configuration),
+      managementApi: Boolean(coverage.managementApi),
+    },
+    warnings: (components.warnings ?? []).map(String),
+    errorSummary: snapshot.error_summary ? String(snapshot.error_summary) : null,
+    downloadable: Boolean(snapshot.downloadable),
+  }
 }
 
 function mapState(payload: { projects: Array<Record<string, unknown>>; activities: Array<Record<string, unknown>> }): RegistryState {
@@ -366,6 +440,20 @@ const productionRegistryService = {
     if (!response.ok) throw new Error('That backup could not be downloaded.')
     const disposition = response.headers.get('content-disposition') ?? ''
     const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `vaultbase-backup-${activityId}.zip`
+    return { blob: await response.blob(), filename }
+  },
+  async listProjectBackups(projectId: string) {
+    const snapshots = await api<Array<Record<string, unknown>>>(`/api/projects/${encodeURIComponent(projectId)}/snapshots`)
+    return snapshots.map(mapSnapshot)
+  },
+  async downloadSnapshot(snapshotId: string) {
+    const response = await fetch(`/api/snapshots/${encodeURIComponent(snapshotId)}/download`, { credentials: 'same-origin' })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({})) as { error?: string }
+      throw new Error(body.error ?? 'That backup could not be downloaded.')
+    }
+    const disposition = response.headers.get('content-disposition') ?? ''
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `vaultbase-backup-${snapshotId}.zip`
     return { blob: await response.blob(), filename }
   },
   async reset() { throw new Error('Production data cannot be reset from the dashboard.') },

@@ -57,6 +57,8 @@ export function useRegistry() {
     runKeepAlive: (projectId: string) => run(() => registryService.runKeepAlive(projectId)),
     verifyRecoveryPoint: (projectId: string) => run(() => registryService.verifyRecoveryPoint(projectId)),
     downloadBackup: (activityId: string) => registryService.downloadBackup(activityId),
+    listProjectBackups: (projectId: string) => registryService.listProjectBackups(projectId),
+    downloadSnapshot: (snapshotId: string) => registryService.downloadSnapshot(snapshotId),
     reset: () => run(() => registryService.reset()),
   }
 }

@@ -383,7 +383,19 @@ app.post('/api/projects/:id/keep-alive', async (request, response, next) => {
 })
 
 app.get('/api/snapshots', async (_request, response) => {
-  const result = await localPool.query(`SELECT s.id, s.project_id, s.restic_snapshot_id, s.status, s.components, s.dump_bytes, s.started_at, s.completed_at, s.verified_at, s.verification_details, s.expires_at FROM vaultbase.snapshots s ORDER BY s.started_at DESC LIMIT 500`)
+  const result = await localPool.query(`SELECT s.id, s.project_id, s.restic_snapshot_id, s.status, s.components, s.trigger_source, s.dump_bytes, s.started_at, s.completed_at, s.verified_at, s.verification_details, s.expires_at FROM vaultbase.snapshots s ORDER BY s.started_at DESC LIMIT 500`)
+  response.json(result.rows)
+})
+
+app.get('/api/projects/:id/snapshots', async (request, response) => {
+  const id = normalizeProjectId(request.params.id)
+  const result = await localPool.query(`SELECT s.id, s.project_id, s.status, s.components, s.trigger_source, s.dump_bytes,
+    s.started_at, s.completed_at, s.verified_at, s.expires_at, s.error_summary,
+    (s.restic_snapshot_id IS NOT NULL AND s.status IN ('uploaded','verified','restore_verified')) downloadable
+    FROM vaultbase.snapshots s
+    WHERE s.project_id=$1
+    ORDER BY s.started_at DESC
+    LIMIT 100`, [id])
   response.json(result.rows)
 })
 
