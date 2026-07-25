@@ -12,6 +12,9 @@ export function validateProject(input: NewProjectInput, existingIds: string[]): 
   if (!id) errors.name = 'Enter a project name using letters or numbers.'
   else if (id.length > 63) errors.name = 'Project names must be 63 characters or fewer.'
   else if (existingIds.includes(id)) errors.name = 'A project with this name already exists.'
+  if (input.ownerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.ownerEmail.trim())) {
+    errors.ownerEmail = 'Enter a valid owner email address.'
+  }
 
   try {
     const url = new URL(input.databaseUrl)
@@ -39,6 +42,24 @@ export function validateProject(input: NewProjectInput, existingIds: string[]): 
       }
     } catch {
       errors.directDatabaseUrl = 'Enter a valid Direct PostgreSQL connection string.'
+    }
+  }
+
+  if (input.storageCredentials) {
+    const storage = input.storageCredentials
+    if (!storage.endpoint.trim() || !storage.region.trim() || !storage.accessKeyId || !storage.secretAccessKey) {
+      errors.storageCredentials = 'Complete all four Storage S3 fields or remove this optional step.'
+    } else if (storage.accessKeyId.length < 8 || storage.secretAccessKey.length < 16) {
+      errors.storageCredentials = 'Enter the complete S3 access key and secret access key.'
+    } else {
+      try {
+        const endpoint = new URL(storage.endpoint)
+        const sessionRef = decodeURIComponent(new URL(input.databaseUrl).username).match(/\.([a-z0-9]+)$/i)?.[1]
+        if (endpoint.protocol !== 'https:') errors.storageCredentials = 'The S3 endpoint must use HTTPS.'
+        else if (sessionRef && endpoint.hostname !== `${sessionRef}.storage.supabase.co`) errors.storageCredentials = 'The S3 endpoint must belong to the same Supabase project.'
+      } catch {
+        errors.storageCredentials = 'Enter a valid Supabase Storage S3 endpoint.'
+      }
     }
   }
 

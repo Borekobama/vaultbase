@@ -17,6 +17,7 @@ function readState(): RegistryState {
     parsed.projects = parsed.projects.map(project => ({
       ...project,
       displayName: project.displayName ?? project.id,
+      ownerEmail: project.ownerEmail ?? null,
       environment: project.environment ?? 'production',
       notes: project.notes ?? '',
       plan: project.plan ?? 'free',
@@ -66,6 +67,7 @@ const mockRegistryService = {
     const project: Project = {
       id,
       displayName: input.name.trim(),
+      ownerEmail: input.ownerEmail.trim() || null,
       environment: 'production',
       notes: '',
       ref,
@@ -87,7 +89,7 @@ const mockRegistryService = {
       secretPath: `supabase/${id}/database`,
       secretConfigured: true,
       directDatabaseSecretConfigured: Boolean(input.directDatabaseUrl),
-      storageSecretConfigured: false,
+      storageSecretConfigured: Boolean(input.storageCredentials),
       managementSecretConfigured: false,
       latestRecoveryPoint: null,
       restoreDrills: [],
@@ -366,6 +368,7 @@ function mapState(payload: { projects: Array<Record<string, unknown>>; activitie
   return {
     projects: payload.projects.map(project => ({
       id: String(project.id), displayName: String(project.display_name ?? project.id), environment: (project.environment ?? 'production') as Project['environment'],
+      ownerEmail: project.owner_email ? String(project.owner_email) : null,
       notes: String(project.notes ?? ''), ref: String(project.ref), region: String(project.region), plan: project.plan as Project['plan'], enabled: Boolean(project.enabled),
       backupMode: project.backup_mode as Project['backupMode'],
       backupSchedule: String(project.backup_schedule), keepAliveSchedule: project.keep_alive_schedule ? String(project.keep_alive_schedule) : 'Disabled',
@@ -399,7 +402,7 @@ const productionRegistryService = {
   async addProject(input: NewProjectInput) {
     const schedules: Record<string, string> = { 'Every 6 hours': '0 */6 * * *', Daily: '0 3 * * *', Weekly: '0 3 * * 0' }
     const keepAlive: Record<string, string> = { 'Every day': '0 9 * * *', 'Every 3 days': '0 9 */3 * *', 'Every 5 days': '0 9 */5 * *' }
-    await api('/api/projects', { method: 'POST', body: JSON.stringify({ displayName: input.name, plan: input.plan, databaseUrl: input.databaseUrl, directDatabaseUrl: input.directDatabaseUrl || undefined, backupSchedule: schedules[input.backupSchedule] ?? input.backupSchedule, keepAliveSchedule: input.plan === 'free' ? keepAlive[input.keepAliveSchedule] ?? input.keepAliveSchedule : null, backupMode: input.backupMode }) })
+    await api('/api/projects', { method: 'POST', body: JSON.stringify({ displayName: input.name, ownerEmail: input.ownerEmail || null, plan: input.plan, databaseUrl: input.databaseUrl, directDatabaseUrl: input.directDatabaseUrl || undefined, backupSchedule: schedules[input.backupSchedule] ?? input.backupSchedule, keepAliveSchedule: input.plan === 'free' ? keepAlive[input.keepAliveSchedule] ?? input.keepAliveSchedule : null, backupMode: input.backupMode, storageCredentials: input.storageCredentials }) })
     return this.load()
   },
   async updateProject(projectId: string, input: UpdateProjectInput) {

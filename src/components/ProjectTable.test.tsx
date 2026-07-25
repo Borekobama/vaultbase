@@ -6,6 +6,7 @@ import { ProjectTable } from './ProjectTable'
 const pendingProject: Project = {
   id: 'priority-project',
   displayName: 'Priority Project',
+  ownerEmail: 'owner@example.com',
   environment: 'production',
   notes: 'Customer-facing production application.',
   ref: 'abcdefghijklmnopqrst',
@@ -71,11 +72,13 @@ describe('ProjectTable', () => {
     const view = within(container)
     fireEvent.click(view.getByRole('button', { name: 'Edit' }))
     fireEvent.change(view.getByLabelText('Display name'), { target: { value: 'Vaultbase Production' } })
+    fireEvent.change(view.getByLabelText('Owner email'), { target: { value: 'backup-owner@example.com' } })
     fireEvent.change(view.getByLabelText('Environment'), { target: { value: 'staging' } })
     fireEvent.click(view.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => expect(onUpdate).toHaveBeenCalledWith('priority-project', expect.objectContaining({
       displayName: 'Vaultbase Production',
+      ownerEmail: 'backup-owner@example.com',
       environment: 'staging',
       backupSchedule: '0 3 * * *',
     })))

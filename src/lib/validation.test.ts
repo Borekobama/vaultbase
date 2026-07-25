@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { normalizeProjectId, validateProject } from './validation'
 
-const valid = { name: 'Customer Portal', plan: 'free' as const, backupMode: 'database' as const, databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
+const valid = { name: 'Customer Portal', ownerEmail: '', plan: 'free' as const, backupMode: 'database' as const, databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
 
 describe('project validation', () => {
   it('normalizes human names into stable ids', () => {
@@ -11,6 +11,20 @@ describe('project validation', () => {
 
   it('accepts a complete PostgreSQL connection', () => {
     expect(validateProject(valid, [])).toEqual({})
+  })
+
+  it('validates the optional owner and Storage S3 fields', () => {
+    expect(validateProject({ ...valid, ownerEmail: 'not-an-email' }, []).ownerEmail).toMatch(/valid owner email/i)
+    expect(validateProject({
+      ...valid,
+      ownerEmail: 'owner@example.com',
+      storageCredentials: {
+        endpoint: 'https://abcdefghijkl.storage.supabase.co/storage/v1/s3',
+        region: 'eu-central-1',
+        accessKeyId: 'storage-access-key',
+        secretAccessKey: 'storage-secret-value',
+      },
+    }, [])).toEqual({})
   })
 
   it('accepts a dedicated backup role through the session pooler', () => {

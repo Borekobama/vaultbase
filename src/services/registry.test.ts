@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { strFromU8, unzipSync } from 'fflate'
 import { registryService } from './registry'
 
-const project = { name: 'Test Project', plan: 'free' as const, backupMode: 'database' as const, databaseUrl: 'postgresql://postgres.abcdefgh1234:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
+const project = { name: 'Test Project', ownerEmail: 'owner@example.com', plan: 'free' as const, backupMode: 'database' as const, databaseUrl: 'postgresql://postgres.abcdefgh1234:password@aws-0-eu-central-1.pooler.supabase.com:5432/postgres', backupSchedule: 'Daily', keepAliveSchedule: 'Every 3 days' }
 
 describe('registry service', () => {
   beforeEach(() => localStorage.clear())
@@ -23,6 +23,7 @@ describe('registry service', () => {
     await registryService.addProject(project)
     const state = await registryService.updateProject('test-project', {
       displayName: 'Payments Production',
+      ownerEmail: 'payments@example.com',
       environment: 'production',
       notes: 'Billing and subscription records.',
       plan: 'pro',
@@ -30,7 +31,23 @@ describe('registry service', () => {
       backupSchedule: '0 */6 * * *',
       keepAliveSchedule: null,
     })
-    expect(state.projects[0]).toMatchObject({ id: 'test-project', displayName: 'Payments Production', environment: 'production', notes: 'Billing and subscription records.' })
+    expect(state.projects[0]).toMatchObject({ id: 'test-project', displayName: 'Payments Production', ownerEmail: 'payments@example.com', environment: 'production', notes: 'Billing and subscription records.' })
+  })
+
+  it('marks optional S3 credentials configured without persisting either secret', async () => {
+    const state = await registryService.addProject({
+      ...project,
+      storageCredentials: {
+        endpoint: 'https://abcdefgh1234.storage.supabase.co/storage/v1/s3',
+        region: 'eu-central-1',
+        accessKeyId: 'storage-access-key',
+        secretAccessKey: 'storage-secret-value',
+      },
+    })
+    const stored = localStorage.getItem('vaultbase.mock.registry.v2')
+    expect(state.projects[0].storageSecretConfigured).toBe(true)
+    expect(stored).not.toContain('storage-access-key')
+    expect(stored).not.toContain('storage-secret-value')
   })
 
   it('records completed backups', async () => {

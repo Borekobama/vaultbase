@@ -38,10 +38,24 @@ describe('Supabase database connection parsing', () => {
 
   it('accepts valid backup and keep-alive cron expressions', () => {
     const result = projectInputSchema.safeParse({
-      displayName: 'Example project', plan: 'free', databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres',
+      displayName: 'Example project', ownerEmail: 'owner@example.com', plan: 'free', databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres',
       backupSchedule: '0 */6 * * *', keepAliveSchedule: '0 9 */3 * *', backupMode: 'database',
+      storageCredentials: {
+        endpoint: 'https://abcdefghijkl.storage.supabase.co/storage/v1/s3',
+        region: 'eu-north-1',
+        accessKeyId: 'storage-access-key',
+        secretAccessKey: 'storage-secret-value',
+      },
     })
     expect(result.success).toBe(true)
+  })
+
+  it('rejects an invalid owner email', () => {
+    expect(projectInputSchema.safeParse({
+      displayName: 'Example project', ownerEmail: 'not-an-email', plan: 'free',
+      databaseUrl: 'postgresql://vaultbase_backup.abcdefghijkl:password@aws-0-eu-north-1.pooler.supabase.com:5432/postgres',
+      backupSchedule: '0 3 * * *', keepAliveSchedule: null, backupMode: 'database',
+    }).success).toBe(false)
   })
 
   it('accepts a matching optional Direct fallback', () => {
@@ -61,6 +75,7 @@ describe('Supabase database connection parsing', () => {
   it('validates editable project profile details', () => {
     expect(projectUpdateSchema.safeParse({
       displayName: 'Customer Production',
+      ownerEmail: 'owner@example.com',
       environment: 'production',
       notes: 'Customer accounts and billing.',
       plan: 'free',

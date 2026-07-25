@@ -122,13 +122,13 @@ app.get('/api/mirror/status', async (_request, response) => {
 })
 
 app.get('/api/projects', async (_request, response) => {
-  const result = await localPool.query(`SELECT id, project_ref, display_name, environment, notes, region, plan, enabled, backup_schedule, keep_alive_schedule, backup_mode, secret_ref, last_backup_at, measured_dump_bytes, status, created_at, updated_at FROM vaultbase.projects ORDER BY created_at DESC`)
+  const result = await localPool.query(`SELECT id, project_ref, display_name, owner_email, environment, notes, region, plan, enabled, backup_schedule, keep_alive_schedule, backup_mode, secret_ref, last_backup_at, measured_dump_bytes, status, created_at, updated_at FROM vaultbase.projects ORDER BY created_at DESC`)
   response.json(result.rows)
 })
 
 app.get('/api/state', async (_request, response) => {
   const [projects, activities] = await Promise.all([
-    localPool.query(`SELECT p.id, p.display_name, p.environment, p.notes, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
+    localPool.query(`SELECT p.id, p.display_name, p.owner_email, p.environment, p.notes, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
       p.created_at, p.last_backup_at, p.measured_dump_bytes storage_bytes, p.status, p.secret_ref secret_path, true secret_configured,
       EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='database_direct') direct_database_secret_configured,
       EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='storage_s3') storage_secret_configured,
@@ -265,6 +265,17 @@ app.post('/api/projects', async (request, response, next) => {
     const parsedDirect = input.directDatabaseUrl ? parseSupabaseDatabaseUrl(input.directDatabaseUrl) : null
     if (parsedDirect?.connectionType !== 'direct') return response.status(400).json({ error: 'The optional Direct route must use db.PROJECT_REF.supabase.co on port 5432.' })
     if (parsedDirect && parsedDirect.projectRef !== parsed.projectRef) return response.status(400).json({ error: 'The Session and Direct URLs belong to different Supabase projects.' })
+    if (input.storageCredentials) {
+      const endpoint = new URL(input.storageCredentials.endpoint)
+      if (endpoint.hostname !== `${parsed.projectRef}.storage.supabase.co`) {
+        return response.status(400).json({ error: 'The Storage S3 endpoint belongs to a different Supabase project.' })
+      }
+      try {
+        await validateStorageCredentials(input.storageCredentials)
+      } catch (error) {
+        return response.status(400).json({ error: `The optional Storage S3 credentials could not be verified: ${error instanceof Error ? error.message : 'validation failed'}` })
+      }
+    }
     try {
       await validateDatabaseConnection(input.databaseUrl, 'vaultbase-session-credential-check')
     } catch (error) {
@@ -279,6 +290,7 @@ app.post('/api/projects', async (request, response, next) => {
     }
     const secretRef = `supabase/${id}/database`
     const directSecretRef = input.directDatabaseUrl ? `supabase/${id}/database-direct` : null
+    const storageSecretRef = input.storageCredentials ? `supabase/${id}/storage-s3` : null
     const client = await localPool.connect()
     try {
       await client.query('BEGIN')
@@ -294,12 +306,17 @@ app.post('/api/projects', async (request, response, next) => {
         await secretStore.put(directSecretRef, input.directDatabaseUrl)
         writtenSecretRefs.push(directSecretRef)
       }
-      const result = await client.query(`INSERT INTO vaultbase.projects(id, project_ref, display_name, region, plan, backup_schedule, keep_alive_schedule, backup_mode, secret_ref)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-        RETURNING id, project_ref, display_name, region, plan, enabled, backup_schedule, keep_alive_schedule, backup_mode, secret_ref, status, created_at`,
-        [id, parsed.projectRef, input.displayName, parsed.region, input.plan, input.backupSchedule, input.keepAliveSchedule, input.backupMode, secretRef])
-      await client.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token', 'project.created', 'project', $1, $2)`, [id, { connectionType: parsed.connectionType }])
+      if (input.storageCredentials && storageSecretRef) {
+        await secretStore.put(storageSecretRef, JSON.stringify(input.storageCredentials))
+        writtenSecretRefs.push(storageSecretRef)
+      }
+      const result = await client.query(`INSERT INTO vaultbase.projects(id, project_ref, display_name, owner_email, region, plan, backup_schedule, keep_alive_schedule, backup_mode, secret_ref)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        RETURNING id, project_ref, display_name, owner_email, region, plan, enabled, backup_schedule, keep_alive_schedule, backup_mode, secret_ref, status, created_at`,
+        [id, parsed.projectRef, input.displayName, input.ownerEmail, parsed.region, input.plan, input.backupSchedule, input.keepAliveSchedule, input.backupMode, secretRef])
+      await client.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token', 'project.created', 'project', $1, $2)`, [id, { connectionType: parsed.connectionType, storageConfigured: Boolean(storageSecretRef) }])
       if (directSecretRef) await client.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'database_direct',$2)`, [id, directSecretRef])
+      if (storageSecretRef) await client.query(`INSERT INTO vaultbase.project_secret_refs(project_id, kind, secret_ref) VALUES ($1,'storage_s3',$2)`, [id, storageSecretRef])
       await client.query('COMMIT')
       response.status(201).json(result.rows[0])
     } catch (error) {
@@ -319,16 +336,16 @@ app.patch('/api/projects/:id', async (request, response, next) => {
     const id = normalizeProjectId(request.params.id)
     const input = projectUpdateSchema.parse(request.body)
     const result = await localPool.query(`UPDATE vaultbase.projects
-      SET display_name=$2, environment=$3, notes=$4, plan=$5, backup_schedule=$6,
-        keep_alive_schedule=$7, backup_mode=$8, updated_at=now()
+      SET display_name=$2, owner_email=$3, environment=$4, notes=$5, plan=$6, backup_schedule=$7,
+        keep_alive_schedule=$8, backup_mode=$9, updated_at=now()
       WHERE id=$1
-      RETURNING id, project_ref, display_name, environment, notes, region, plan, enabled,
+      RETURNING id, project_ref, display_name, owner_email, environment, notes, region, plan, enabled,
         backup_schedule, keep_alive_schedule, backup_mode, status, created_at, updated_at`,
-      [id, input.displayName, input.environment, input.notes, input.plan, input.backupSchedule, input.keepAliveSchedule, input.backupMode])
+      [id, input.displayName, input.ownerEmail, input.environment, input.notes, input.plan, input.backupSchedule, input.keepAliveSchedule, input.backupMode])
     if (!result.rowCount) return response.status(404).json({ error: 'Project not found.' })
     await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata)
       VALUES ('api-token', 'project.updated', 'project', $1, $2)`,
-      [id, { fields: ['display_name', 'environment', 'notes', 'plan', 'backup_schedule', 'keep_alive_schedule', 'backup_mode'] }])
+      [id, { fields: ['display_name', 'owner_email', 'environment', 'notes', 'plan', 'backup_schedule', 'keep_alive_schedule', 'backup_mode'] }])
     response.json(result.rows[0])
   } catch (error) {
     if (error instanceof z.ZodError) return response.status(400).json({ error: 'Invalid project details.', issues: error.issues.map(issue => ({ path: issue.path.join('.'), message: issue.message })) })

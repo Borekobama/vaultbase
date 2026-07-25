@@ -58,6 +58,7 @@ export interface BackupSnapshot {
 export interface Project {
   id: string
   displayName: string
+  ownerEmail?: string | null
   environment: ProjectEnvironment
   notes: string
   ref: string
@@ -103,16 +104,19 @@ export interface RegistryState {
 
 export interface NewProjectInput {
   name: string
+  ownerEmail: string
   plan: SupabasePlan
   backupMode: BackupMode
   databaseUrl: string
   directDatabaseUrl?: string
   backupSchedule: string
   keepAliveSchedule: string
+  storageCredentials?: StorageCredentialsInput
 }
 
 export interface UpdateProjectInput {
   displayName: string
+  ownerEmail: string
   environment: ProjectEnvironment
   notes: string
   plan: SupabasePlan

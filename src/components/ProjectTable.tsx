@@ -1,4 +1,4 @@
-import { Activity, Archive, CalendarClock, Check, ChevronDown, Clock3, Database, Download, FlaskConical, HardDrive, Layers3, Minus, Pencil, Play, RotateCw, ShieldCheck, TriangleAlert, X } from 'lucide-react'
+import { Activity, Archive, CalendarClock, Check, ChevronDown, Clock3, Database, Download, FlaskConical, HardDrive, Layers3, Mail, Minus, Pencil, Play, RotateCw, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { type FormEvent, type ReactNode, useEffect, useState } from 'react'
 import type { ActivityItem, BackupSnapshot, Project, RecoveryCoverage, UpdateProjectInput } from '../domain'
 import { formatBytes, formatDateTime } from '../lib/format'
@@ -48,7 +48,7 @@ export function ProjectTable({ projects, activities, busyJob, downloadingId, sho
               <div className="row-actions"><button className="quiet action-button details-action" type="button" aria-expanded={expanded} aria-controls={`details-${project.id}`} onClick={() => { setExpandedId(expanded ? null : project.id); if (expanded) setEditingId(null) }}><ChevronDown className={expanded ? 'rotated' : ''} size={14} aria-hidden="true"/>{expanded ? 'Hide' : 'Details'}</button><button className="quiet action-button edit-action" type="button" aria-expanded={editing} aria-controls={`edit-${project.id}`} onClick={() => { setExpandedId(project.id); setEditingId(editing ? null : project.id) }}>{editing ? <X size={13} aria-hidden="true"/> : <Pencil size={13} aria-hidden="true"/>}{editing ? 'Close' : 'Edit'}</button><button className="quiet action-button" type="button" disabled={Boolean(busyJob) || !project.enabled || project.plan !== 'free'} aria-label={`Run keep-alive for ${project.id}`} onClick={() => onRunKeepAlive(project.id)}><Activity size={13} aria-hidden="true"/>{keepAliveRunning ? 'Checking…' : 'Ping'}</button><button className="primary compact-action" type="button" disabled={Boolean(busyJob) || !project.enabled} aria-label={`Run backup for ${project.id}`} onClick={() => onRunBackup(project.id)}><Play size={13} aria-hidden="true"/>{backupRunning ? 'Running…' : project.lastBackupAt ? 'Back up now' : 'Run first backup'}</button></div>
             </header>
             {expanded && <div id={`details-${project.id}`} className="project-record-details">
-            <div className="project-profile-summary"><div><span>Project reference</span><code>{project.ref}</code></div><div><span>Region</span><strong>{project.region}</strong></div><div className="project-profile-note"><span>Notes</span><strong>{project.notes || 'No notes added'}</strong></div></div>
+            <div className="project-profile-summary"><div><span>Project reference</span><code>{project.ref}</code></div><div><span>Region</span><strong>{project.region}</strong></div><div className="project-profile-owner"><span>Owner</span>{project.ownerEmail ? <a href={`mailto:${project.ownerEmail}`}><Mail size={11}/>{project.ownerEmail}</a> : <strong>Not assigned</strong>}</div><div className="project-profile-note"><span>Notes</span><strong>{project.notes || 'No notes added'}</strong></div></div>
             {editing && <ProjectEditor project={project} onCancel={() => setEditingId(null)} onSave={async input => { await onUpdate(project.id, input); setEditingId(null) }}/>}
             <div className="project-facts">
               <ProjectFact icon={<Archive size={14}/>} label="Protection" value={project.backupMode === 'full_project' ? 'Full project' : 'Database only'} detail={scheduleLabel[project.backupSchedule] ?? project.backupSchedule}/>
@@ -218,6 +218,7 @@ const scheduleAliases: Record<string, string> = { 'Every 6 hours': '0 */6 * * *'
 function ProjectEditor({ project, onCancel, onSave }: { project: Project; onCancel: () => void; onSave: (input: UpdateProjectInput) => Promise<void> }) {
   const [input, setInput] = useState<UpdateProjectInput>({
     displayName: project.displayName,
+    ownerEmail: project.ownerEmail ?? '',
     environment: project.environment,
     notes: project.notes,
     plan: project.plan,
@@ -235,8 +236,9 @@ function ProjectEditor({ project, onCancel, onSave }: { project: Project; onCanc
     event.preventDefault()
     if (saving) return
     if (input.displayName.trim().length < 2) return setError('Display name must contain at least two characters.')
+    if (input.ownerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.ownerEmail.trim())) return setError('Enter a valid owner email address.')
     setSaving(true)
-    try { await onSave({ ...input, displayName: input.displayName.trim(), notes: input.notes.trim(), keepAliveSchedule: input.plan === 'free' ? input.keepAliveSchedule : null }) }
+    try { await onSave({ ...input, displayName: input.displayName.trim(), ownerEmail: input.ownerEmail.trim(), notes: input.notes.trim(), keepAliveSchedule: input.plan === 'free' ? input.keepAliveSchedule : null }) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Project details could not be saved.'); setSaving(false) }
   }
 
@@ -244,6 +246,7 @@ function ProjectEditor({ project, onCancel, onSave }: { project: Project; onCanc
     <div className="editor-intro"><div><span>Project profile</span><strong>Make this connection recognizable at a glance.</strong></div><small>Reference <code>{project.ref}</code> and region <code>{project.region}</code> are connection-derived and cannot be edited.</small></div>
     <div className="editor-fields">
       <label className="editor-field editor-name"><span>Display name</span><input value={input.displayName} maxLength={80} autoFocus onChange={event => update('displayName', event.target.value)} placeholder="Customer production"/></label>
+      <label className="editor-field"><span>Owner email</span><input type="email" value={input.ownerEmail} maxLength={254} onChange={event => update('ownerEmail', event.target.value)} placeholder="owner@example.com" autoComplete="email"/></label>
       <label className="editor-field"><span>Environment</span><select value={input.environment} onChange={event => update('environment', event.target.value as UpdateProjectInput['environment'])}><option value="production">Production</option><option value="staging">Staging</option><option value="development">Development</option></select></label>
       <label className="editor-field editor-notes"><span>What does it power?</span><textarea value={input.notes} maxLength={240} rows={2} onChange={event => update('notes', event.target.value)} placeholder="Customer portal, billing data, and account authentication…"/><small>{input.notes.length}/240</small></label>
       <label className="editor-field"><span>Supabase plan</span><select value={input.plan} onChange={event => { const plan = event.target.value as UpdateProjectInput['plan']; setInput(current => ({ ...current, plan, keepAliveSchedule: plan === 'free' ? current.keepAliveSchedule ?? '0 9 */3 * *' : null })) }}><option value="free">Free</option><option value="pro">Pro</option><option value="team">Team</option><option value="enterprise">Enterprise</option></select></label>

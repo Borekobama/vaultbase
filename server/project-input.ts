@@ -11,18 +11,30 @@ const cronExpression = z.string().trim().min(1).max(100).refine(value => {
   }
 }, 'Enter a valid cron expression.')
 
+const optionalOwnerEmail = z.union([z.string().trim().email().max(254), z.literal(''), z.null()]).transform(value => value || null)
+
+const storageCredentials = z.object({
+  endpoint: z.string().url().startsWith('https://').max(2048),
+  region: z.string().trim().min(2).max(80),
+  accessKeyId: z.string().min(8).max(256),
+  secretAccessKey: z.string().min(16).max(512),
+})
+
 export const projectInputSchema = z.object({
   displayName: z.string().trim().min(2).max(80),
+  ownerEmail: optionalOwnerEmail.optional().default(null),
   plan: z.enum(['free', 'pro', 'team', 'enterprise']),
   databaseUrl: z.string().trim().min(20).max(2048),
   directDatabaseUrl: z.string().trim().min(20).max(2048).optional(),
   backupSchedule: cronExpression.default('0 3 * * *'),
   keepAliveSchedule: cronExpression.nullable().default(null),
   backupMode: z.enum(['database', 'full_project']).default('database'),
+  storageCredentials: storageCredentials.optional(),
 })
 
 export const projectUpdateSchema = z.object({
   displayName: z.string().trim().min(2).max(80),
+  ownerEmail: optionalOwnerEmail.optional().default(null),
   environment: z.enum(['production', 'staging', 'development']),
   notes: z.string().trim().max(240),
   plan: z.enum(['free', 'pro', 'team', 'enterprise']),
