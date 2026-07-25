@@ -143,4 +143,8 @@ volumes:
 networks:
   internal:
     internal: true
-  egress: {}
+  egress:
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd7a:115c:a1e0:91::/64
