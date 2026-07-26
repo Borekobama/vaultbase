@@ -44,3 +44,11 @@ export function snapshotsMissingFromRepository(catalogued: CataloguedSnapshot[],
   }
   return missing
 }
+
+export function planCatalogReconciliation(catalogued: CataloguedSnapshot[], repositoryIds: ReadonlySet<string>) {
+  const active = catalogued.filter(snapshot => snapshot.status !== 'expired')
+  const reactivated = catalogued.filter(snapshot => snapshot.status === 'expired' && snapshotIdIsPresent(snapshot.restic_snapshot_id, repositoryIds))
+  const expired = snapshotsMissingFromRepository([...active, ...reactivated], repositoryIds)
+    .filter(snapshot => snapshot.status !== 'expired')
+  return { expired, reactivated }
+}

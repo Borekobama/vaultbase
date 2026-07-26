@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { retentionArguments, snapshotIdIsPresent, snapshotsMissingFromRepository } from './retention-policy'
+import { planCatalogReconciliation, retentionArguments, snapshotIdIsPresent, snapshotsMissingFromRepository } from './retention-policy'
 
 describe('backup retention policy', () => {
   it('uses a rolling seven-day window and always keeps the latest snapshot', () => {
@@ -46,5 +46,14 @@ describe('backup retention policy', () => {
     ], new Set(['bbbbbbbb']))).toEqual([
       { id: 'catalog-1', project_id: 'customer-prod', restic_snapshot_id: 'aaaaaaaa', status: 'uploaded' },
     ])
+  })
+
+  it('repairs an inverted catalog without tripping the all-expired safety check', () => {
+    const retained = { id: 'catalog-retained', project_id: 'customer-prod', restic_snapshot_id: 'aaaaaaaa', status: 'expired' as const }
+    const removed = { id: 'catalog-removed', project_id: 'customer-prod', restic_snapshot_id: 'bbbbbbbb', status: 'uploaded' as const }
+    expect(planCatalogReconciliation([retained, removed], new Set(['aaaaaaaa']))).toEqual({
+      expired: [removed],
+      reactivated: [retained],
+    })
   })
 })

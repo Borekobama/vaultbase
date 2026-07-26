@@ -3,7 +3,7 @@ import { config } from './config.js'
 import { runProcess } from './process.js'
 import { localPool } from './db.js'
 import { randomUUID } from 'node:crypto'
-import { retentionArguments, snapshotIdIsPresent, snapshotsMissingFromRepository, type CataloguedSnapshot } from './retention-policy.js'
+import { planCatalogReconciliation, retentionArguments, snapshotIdIsPresent, type CataloguedSnapshot } from './retention-policy.js'
 
 async function resticEnvironment() {
   const values: NodeJS.ProcessEnv = {}
@@ -24,13 +24,11 @@ export async function applyRetention(projectId?: string, prune = false) {
   const repositorySnapshots = JSON.parse(listed.stdout) as Array<{ id: string }>
   const present = new Set(repositorySnapshots.map(snapshot => snapshot.id))
   const catalogued = await localPool.query<CataloguedSnapshot>(`SELECT id, project_id, restic_snapshot_id, status FROM vaultbase.snapshots WHERE restic_snapshot_id IS NOT NULL AND status IN ('uploaded','verified','restore_verified','expired')${projectId ? ' AND project_id=$1' : ''}`, projectId ? [projectId] : [])
-  const active = catalogued.rows.filter(snapshot => snapshot.status !== 'expired')
-  const expired = snapshotsMissingFromRepository(active, present)
+  const { expired, reactivated } = planCatalogReconciliation(catalogued.rows, present)
   for (const snapshot of expired) {
     await localPool.query(`UPDATE vaultbase.snapshots SET status='expired', expires_at=now() WHERE id=$1`, [snapshot.id])
     await localPool.query(`INSERT INTO vaultbase.activities(id, project_id, snapshot_id, event_type, status, message, occurred_at) VALUES ($1,$2,$3,'retention','warning','Snapshot expired by retention policy',now())`, [randomUUID(), snapshot.project_id, snapshot.id])
   }
-  const reactivated = catalogued.rows.filter(snapshot => snapshot.status === 'expired' && snapshotIdIsPresent(snapshot.restic_snapshot_id, present))
   for (const snapshot of reactivated) {
     await localPool.query(`UPDATE vaultbase.snapshots SET status='uploaded', expires_at=NULL WHERE id=$1`, [snapshot.id])
     await localPool.query(`INSERT INTO vaultbase.activities(id, project_id, snapshot_id, event_type, status, message, occurred_at) VALUES ($1,$2,$3,'retention','success','Snapshot restored to active catalog after repository reconciliation',now())`, [randomUUID(), snapshot.project_id, snapshot.id])
