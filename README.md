@@ -10,7 +10,7 @@ A Supabase-inspired control plane for encrypted database backups and keep-alive 
 - AES-256-GCM encrypted project secrets stored outside both metadata databases
 - Scheduled database/full-project recovery packs and Free-plan keep-alive queries
 - Roles, schema, data, Auth data, Storage metadata, manifests and checksums
-- Encrypted R2/Restic upload, GFS retention and protected snapshot labels
+- Encrypted R2/Restic upload, rolling seven-day retention and protected snapshot labels
 - Real ZIP downloads and isolated PostgreSQL restore verification
 - Optional incremental Supabase Storage object synchronization when S3 credentials are supplied
 - Measured-size backup planning for Free, Pro and Team projects

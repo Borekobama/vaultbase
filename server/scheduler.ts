@@ -39,7 +39,7 @@ async function refresh() {
   const projects = await localPool.query('SELECT id, plan, backup_schedule, keep_alive_schedule FROM vaultbase.projects WHERE enabled=true')
   const expected = new Set(['system:mirror', 'system:retention'])
   schedule('system:mirror', '15 3 * * *', () => syncMirror())
-  schedule('system:retention', '0 5 * * 0', () => applyRetention(undefined, true))
+  schedule('system:retention', '0 5 * * *', () => applyRetention(undefined, true))
   for (const project of projects.rows) {
     const backupKey = `backup:${project.id}`
     expected.add(backupKey)

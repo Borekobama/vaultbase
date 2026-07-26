@@ -13,8 +13,8 @@
 - R2/Restic encrypted repository
 - Authenticated ZIP download stream
 - Isolated PostgreSQL restore drill with checksum, schema, data and `ANALYZE` verification
-- GFS retention: 24 hourly, 7 daily, 4 weekly, 12 monthly, protected labels
-- Daily metadata mirror timer and weekly retention/prune timer
+- Rolling seven-day retention with an explicit latest-snapshot safeguard and protected labels
+- Daily metadata mirror and retention/prune schedules
 - Authenticated React UI with real project, job, activity and download data
 - Secure HttpOnly session flow with CSRF/origin protection
 - Per-project backup and keep-alive scheduler with advisory overlap locks
