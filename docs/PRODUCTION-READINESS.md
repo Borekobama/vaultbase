@@ -18,6 +18,8 @@
 - Authenticated React UI with real project, job, activity and download data
 - Secure HttpOnly session flow with CSRF/origin protection
 - Per-project backup and keep-alive scheduler with advisory overlap locks
+- Best-effort direct Telegram failure/recovery alerts with persistent deduplication
+- External Healthchecks start/success/failure heartbeat integration for scheduled jobs
 - Durable manual-backup jobs with 202 responses and status polling
 - Retention-to-catalog reconciliation with explicit expired snapshot state
 - Verified Supabase TLS using a mounted CA bundle
@@ -33,11 +35,11 @@
 - Management API project discovery/status/configuration export
 - Auth provider/JWT configuration recovery through Management API
 - Edge Function source/config recovery
-- Email/Telegram/Discord/Slack alert delivery and dead-man monitor
+- Additional email/Discord/Slack alert delivery
 - Configuration/schema drift UI
 - Immutable weekly/monthly R2 export bucket and bucket-lock policy
 - Second-provider replication
 - Automated temporary Supabase-project restore drills; current drills target isolated PostgreSQL
-- Scheduled restore-verification drills and external dead-man monitoring
+- Scheduled restore-verification drills
 
 The core database backup, download, restore-verification, keep-alive and metadata-mirror system is deployable without these integrations. Features in this backlog must not be represented as available in the UI until implemented and externally verified.

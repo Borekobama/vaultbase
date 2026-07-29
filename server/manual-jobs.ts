@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { localPool } from './db.js'
 import { createRecoveryPack } from './recovery-pack.js'
 import { JobAlreadyRunningError } from './job-lock.js'
+import { runMonitoredJob } from './monitoring.js'
 
 const dispatched = new Set<string>()
 
@@ -9,11 +10,17 @@ async function executeBackupJob(jobId: string) {
   if (dispatched.has(jobId)) return
   dispatched.add(jobId)
   try {
-    const claimed = await localPool.query(`UPDATE vaultbase.jobs SET status='running', started_at=now() WHERE id=$1 AND status='queued' RETURNING project_id`, [jobId])
+    const claimed = await localPool.query(`UPDATE vaultbase.jobs job SET status='running', started_at=now()
+      FROM vaultbase.projects project
+      WHERE job.id=$1 AND job.status='queued' AND project.id=job.project_id
+      RETURNING job.project_id, project.display_name`, [jobId])
     if (!claimed.rowCount) return
     const projectId = claimed.rows[0].project_id as string
     try {
-      const result = await createRecoveryPack(projectId, 'manual')
+      const result = await runMonitoredJob({
+        scope: `backup:${projectId}`,
+        label: `Backup · ${claimed.rows[0].display_name}`,
+      }, () => createRecoveryPack(projectId, 'manual'))
       const payload = { snapshotId: result.snapshotId, resticSnapshotId: result.resticSnapshotId, bytes: result.dumpBytes }
       await localPool.query(`UPDATE vaultbase.jobs SET status='success', result=$2, completed_at=now() WHERE id=$1`, [jobId, payload])
       await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token','backup.manual.completed','project',$1,$2)`, [projectId, { jobId, snapshotId: result.snapshotId }])

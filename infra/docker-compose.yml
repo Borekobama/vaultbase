@@ -49,6 +49,9 @@ services:
       RESTIC_CACHE_DIR: /var/cache/vaultbase/restic
       PG_BIN_DIRECTORY: /usr/lib/postgresql/17/bin
       SUPABASE_CA_BUNDLE_FILE: /run/secrets/supabase-ca.crt
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/vaultbase-telegram-token
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      HEALTHCHECKS_PING_URLS_FILE: /run/secrets/vaultbase-healthchecks-ping-urls
       TZ: ${TZ:-Europe/Zurich}
     volumes:
       - ../runtime/secrets:/var/lib/vaultbase/secrets
@@ -58,6 +61,8 @@ services:
       - ../secrets/r2.env:/run/secrets/r2.env:ro
       - ../secrets/restic-password:/run/secrets/restic-password:ro
       - ../certs/prod-ca-2021.crt:/run/secrets/supabase-ca.crt:ro
+      - ../secrets/vaultbase-telegram-token:/run/secrets/vaultbase-telegram-token:ro
+      - ../secrets/vaultbase-healthchecks-ping-urls:/run/secrets/vaultbase-healthchecks-ping-urls:ro
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
     read_only: true
@@ -100,6 +105,9 @@ services:
       RESTIC_CACHE_DIR: /var/cache/vaultbase/restic
       PG_BIN_DIRECTORY: /usr/lib/postgresql/17/bin
       SUPABASE_CA_BUNDLE_FILE: /run/secrets/supabase-ca.crt
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/vaultbase-telegram-token
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      HEALTHCHECKS_PING_URLS_FILE: /run/secrets/vaultbase-healthchecks-ping-urls
     ports:
       - "127.0.0.1:${VAULTBASE_PORT:-12013}:8787"
     volumes:
@@ -110,6 +118,8 @@ services:
       - ../secrets/r2.env:/run/secrets/r2.env:ro
       - ../secrets/restic-password:/run/secrets/restic-password:ro
       - ../certs/prod-ca-2021.crt:/run/secrets/supabase-ca.crt:ro
+      - ../secrets/vaultbase-telegram-token:/run/secrets/vaultbase-telegram-token:ro
+      - ../secrets/vaultbase-healthchecks-ping-urls:/run/secrets/vaultbase-healthchecks-ping-urls:ro
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
     read_only: true

@@ -55,6 +55,14 @@ for secret in secrets/r2.env secrets/restic-password; do
   [ -s "${secret}" ] || { echo "Could not prepare ${secret} from .env." >&2; exit 1; }
   chmod 600 "${secret}"
 done
+if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [[ "${TELEGRAM_BOT_TOKEN}" != replace-with-* ]]; then
+  [ -s secrets/vaultbase-telegram-token ] || { echo "Could not prepare the Telegram token from .env." >&2; exit 1; }
+  [[ "${TELEGRAM_CHAT_ID:-}" =~ ^-?[0-9]+$ ]] || { echo "TELEGRAM_CHAT_ID must be numeric." >&2; exit 1; }
+fi
+if [ -n "${HEALTHCHECKS_BACKUP_PING_URL:-}" ] || [ -n "${HEALTHCHECKS_PING_URLS_JSON:-}" ]; then
+  [ -s secrets/vaultbase-healthchecks-ping-urls ] || { echo "Could not prepare the Healthchecks ping URL from .env." >&2; exit 1; }
+fi
+chmod 600 secrets/vaultbase-telegram-token secrets/vaultbase-healthchecks-ping-urls
 [ -s certs/prod-ca-2021.crt ] || { echo "Missing tracked Supabase CA certificate: certs/prod-ca-2021.crt" >&2; exit 1; }
 [ -s .env ] || { echo "Missing .env; run bin/setup.sh first." >&2; exit 1; }
 chmod 600 .env

@@ -13,6 +13,7 @@ A Supabase-inspired control plane for encrypted database backups and keep-alive 
 - Encrypted R2/Restic upload, rolling seven-day retention and protected snapshot labels
 - Real ZIP downloads and isolated PostgreSQL restore verification
 - Optional incremental Supabase Storage object synchronization when S3 credentials are supplied
+- Optional direct Telegram failure/recovery alerts and external Healthchecks heartbeats
 - Measured-size backup planning for Free, Pro and Team projects
 - TypeScript tests, production builds, browser smoke tests and accessibility checks
 
@@ -59,3 +60,25 @@ The public Supabase Root 2021 CA certificate is tracked at `certs/prod-ca-2021.c
 If any credential is exposed in a log, chat, or screenshot, follow [the incident rotation runbook](./docs/INCIDENT-ROTATION.md) before resuming backups.
 
 See [docs/PRODUCTION-READINESS.md](./docs/PRODUCTION-READINESS.md) for the verified core and optional expansion backlog.
+Keep an encrypted offline copy of [docs/SUPABASE-REBUILD-CHECKLIST.md](./docs/SUPABASE-REBUILD-CHECKLIST.md) and update it after every recovery drill.
+
+### Monitoring secrets
+
+When `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and
+`HEALTHCHECKS_BACKUP_PING_URL` are set in the ignored root `.env`,
+`bin/deploy.sh` materializes the token and ping URL as read-only mounted files.
+Scheduled backups send Healthchecks `/start`, success, and `/fail` signals.
+Telegram sends only the first failure and the subsequent recovery for each job;
+notification delivery errors never change the backup result.
+
+The single URL form is a fallback for every scheduled project backup. For
+multiple projects or system-job checks, set the ignored
+`HEALTHCHECKS_PING_URLS_JSON` value to a one-line JSON mapping:
+
+```json
+{
+  "backup:project-id": "https://hc-ping.com/...",
+  "system:mirror": "https://hc-ping.com/...",
+  "system:retention": "https://hc-ping.com/..."
+}
+```

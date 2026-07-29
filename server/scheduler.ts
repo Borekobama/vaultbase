@@ -7,6 +7,7 @@ import { applyRetention } from './retention.js'
 import { localPool } from './db.js'
 import { randomUUID } from 'node:crypto'
 import { cleanupStaleWorkDirectories } from './work-directory.js'
+import { notifyFailure, runMonitoredJob } from './monitoring.js'
 
 const jobs = new Map<string, CronType>()
 const timezone = process.env.TZ || 'UTC'
@@ -35,15 +36,20 @@ async function refresh() {
   for (const snapshot of stuck.rows) {
     await localPool.query(`UPDATE vaultbase.projects SET status='failed', updated_at=now() WHERE id=$1`, [snapshot.project_id])
     await localPool.query(`INSERT INTO vaultbase.activities(id, project_id, snapshot_id, event_type, status, message, occurred_at) VALUES ($1,$2,$3,'backup','failed','Stale running backup was reconciled',now())`, [randomUUID(), snapshot.project_id, snapshot.id])
+    await notifyFailure(`backup:${snapshot.project_id}`, `Backup · ${snapshot.project_id}`, new Error('Backup remained running for more than 24 hours.'))
   }
-  const projects = await localPool.query('SELECT id, plan, backup_schedule, keep_alive_schedule FROM vaultbase.projects WHERE enabled=true')
+  const projects = await localPool.query('SELECT id, display_name, plan, backup_schedule, keep_alive_schedule FROM vaultbase.projects WHERE enabled=true')
   const expected = new Set(['system:mirror', 'system:retention'])
-  schedule('system:mirror', '15 3 * * *', () => syncMirror())
-  schedule('system:retention', '0 5 * * *', () => applyRetention(undefined, true))
+  schedule('system:mirror', '15 3 * * *', () => runMonitoredJob({ scope: 'system:mirror', label: 'Metadata mirror', useHealthcheck: true }, () => syncMirror()))
+  schedule('system:retention', '0 5 * * *', () => runMonitoredJob({ scope: 'system:retention', label: 'Retention and prune', useHealthcheck: true }, () => applyRetention(undefined, true)))
   for (const project of projects.rows) {
     const backupKey = `backup:${project.id}`
     expected.add(backupKey)
-    schedule(backupKey, project.backup_schedule, () => createRecoveryPack(project.id), false)
+    schedule(backupKey, project.backup_schedule, () => runMonitoredJob({
+      scope: backupKey,
+      label: `Backup · ${project.display_name}`,
+      useHealthcheck: true,
+    }, () => createRecoveryPack(project.id)), false)
     if (project.plan === 'free' && project.keep_alive_schedule) {
       const keepAliveKey = `keep-alive:${project.id}`
       expected.add(keepAliveKey)

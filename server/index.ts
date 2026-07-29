@@ -14,6 +14,7 @@ import { invalidOptionalDirectRoute, normalizeProjectId, parseSupabaseDatabaseUr
 import { secretStore } from './secret-store.js'
 import { streamSnapshotDownload } from './snapshot-download.js'
 import { verifyResticSnapshot } from './verify-recovery.js'
+import { runMonitoredJob } from './monitoring.js'
 import { runKeepAlive } from './keep-alive.js'
 import { JobAlreadyRunningError } from './job-lock.js'
 import { cleanupStaleWorkDirectories } from './work-directory.js'
@@ -442,7 +443,10 @@ app.post('/api/snapshots/:id/verify', async (request, response, next) => {
   try {
     const snapshot = await localPool.query('SELECT restic_snapshot_id FROM vaultbase.snapshots WHERE id=$1', [request.params.id])
     if (!snapshot.rowCount || !snapshot.rows[0].restic_snapshot_id) return response.status(404).json({ error: 'Snapshot not found.' })
-    const result = await verifyResticSnapshot(snapshot.rows[0].restic_snapshot_id)
+    const result = await runMonitoredJob({
+      scope: `restore-verification:${request.params.id}`,
+      label: `Restore verification · ${request.params.id}`,
+    }, () => verifyResticSnapshot(snapshot.rows[0].restic_snapshot_id))
     await localPool.query(`UPDATE vaultbase.snapshots SET verification_details=$2 WHERE id=$1`, [request.params.id, result])
     await localPool.query(`INSERT INTO vaultbase.audit_events(actor, action, target_type, target_id, metadata) VALUES ('api-token','snapshot.verified','snapshot',$1,$2)`, [request.params.id, result])
     response.json(result)
@@ -453,7 +457,12 @@ app.post('/api/snapshots/:id/verify', async (request, response, next) => {
 })
 
 app.post('/api/mirror/run', async (_request, response, next) => {
-  try { response.status(202).json(await syncMirror()) } catch (error) { next(error) }
+  try {
+    response.status(202).json(await runMonitoredJob(
+      { scope: 'system:mirror', label: 'Metadata mirror' },
+      () => syncMirror(),
+    ))
+  } catch (error) { next(error) }
 })
 
 app.use((error: unknown, request: express.Request, response: express.Response, _next: express.NextFunction) => {
