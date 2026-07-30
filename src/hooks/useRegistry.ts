@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { DatabaseCredentialsInput, NewProjectInput, RegistryState, StorageCredentialsInput, UpdateProjectInput } from '../domain'
 import { registryService } from '../services/registry'
 
-const initialState: RegistryState = { projects: [], activities: [] }
+const initialState: RegistryState = {
+  projects: [],
+  activities: [],
+  repositoryStorageBytes: null,
+  repositoryStorageMeasuredAt: null,
+}
 
 export function useRegistry() {
   const [state, setState] = useState<RegistryState>(initialState)

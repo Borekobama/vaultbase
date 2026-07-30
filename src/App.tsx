@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Activity, Bell, Database, HardDrive, Plus, ShieldCheck, X } from 'lucide-react'
 import type { DatabaseCredentialsInput, NewProjectInput, StorageCredentialsInput, UpdateProjectInput, View } from './domain'
 import { AddProjectDialog } from './components/AddProjectDialog'
@@ -27,7 +27,7 @@ export default function App() {
   const toastTimer = useRef<number | null>(null)
   const copy = pageCopy[view]
   const healthy = registry.projects.filter(project => project.status === 'healthy').length
-  const storageBytes = useMemo(() => registry.projects.reduce((sum, project) => sum + project.storageBytes, 0), [registry.projects])
+  const repositoryStorage = registry.repositoryStorageBytes === null ? 'Unavailable' : formatBytes(registry.repositoryStorageBytes)
   const recentBackups = registry.activities.filter(item => item.type === 'backup' && Date.now() - new Date(item.occurredAt).getTime() < 86_400_000)
   const backupDetail = recentBackups.length === 0 ? 'No backups in this window' : recentBackups.every(item => item.status === 'success') ? 'All completed successfully' : 'Some jobs need attention'
 
@@ -147,7 +147,7 @@ export default function App() {
         <div className="page-heading"><div><div className="eyebrow">{copy.eyebrow}</div><h1>{copy.title}</h1><p>{copy.description}</p></div>{view !== 'Settings' && <button className="primary" type="button" onClick={() => setDialogOpen(true)}><Plus size={15} aria-hidden="true"/>Add project</button>}</div>
         {registry.error && <div className="error-banner" role="alert"><span>{registry.error}</span><button type="button" className="icon-control" aria-label="Dismiss error" onClick={registry.clearError}><X size={16}/></button></div>}
         {registry.loading ? <LoadingState/> : <>
-          {view === 'Overview' && <><section className="metrics" aria-label="Workspace summary"><Metric label="Protected projects" value={String(registry.projects.length)} detail={`${healthy} healthy · ${registry.projects.length - healthy} need attention`} icon={<Database size={15}/>}/><Metric label="Backups in last 24 hours" value={String(recentBackups.length)} detail={backupDetail} icon={<Activity size={15}/>}/><Metric label="Encrypted storage" value={formatBytes(storageBytes)} detail="Cloudflare R2 · GFS retention" icon={<HardDrive size={15}/>}/></section><section className="notice"><ShieldCheck size={19} aria-hidden="true"/><div><strong>Recovery infrastructure connected</strong><p>Backups are encrypted before upload and catalogued in local PostgreSQL.</p></div><button type="button" onClick={() => setView('Activity')}>View activity →</button></section></>}
+          {view === 'Overview' && <><section className="metrics" aria-label="Workspace summary"><Metric label="Protected projects" value={String(registry.projects.length)} detail={`${healthy} healthy · ${registry.projects.length - healthy} need attention`} icon={<Database size={15}/>}/><Metric label="Backups in last 24 hours" value={String(recentBackups.length)} detail={backupDetail} icon={<Activity size={15}/>}/><Metric label="Repository data" value={repositoryStorage} detail={registry.repositoryStorageBytes === null ? 'Restic measurement unavailable' : 'Deduplicated · encrypted · Cloudflare R2'} icon={<HardDrive size={15}/>}/></section><section className="notice"><ShieldCheck size={19} aria-hidden="true"/><div><strong>Recovery infrastructure connected</strong><p>Backups are encrypted before upload and catalogued in local PostgreSQL.</p></div><button type="button" onClick={() => setView('Activity')}>View activity →</button></section></>}
           {(view === 'Overview' || view === 'Projects') && (
             <ProjectTable key={view} projects={registry.projects} activities={registry.activities} busyJob={busyJob} downloadingId={downloadingId} showBackupArchive={view === 'Projects'} onRunBackup={runBackup} onRunKeepAlive={runKeepAlive} onVerifyRecoveryPoint={verifyRecoveryPoint} onListBackups={registry.listProjectBackups} onDownloadBackup={downloadSnapshot} onUpdate={updateProject} onRefresh={() => { void refresh() }} onAdd={() => setDialogOpen(true)}/>
           )}

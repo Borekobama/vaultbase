@@ -100,6 +100,8 @@ export interface ActivityItem {
 export interface RegistryState {
   projects: Project[]
   activities: ActivityItem[]
+  repositoryStorageBytes: number | null
+  repositoryStorageMeasuredAt: string | null
 }
 
 export interface NewProjectInput {

@@ -34,6 +34,8 @@ function readState(): RegistryState {
       latestRecoveryPoint: project.latestRecoveryPoint ?? null,
       restoreDrills: project.restoreDrills ?? [],
     }))
+    parsed.repositoryStorageBytes = parsed.repositoryStorageBytes ?? null
+    parsed.repositoryStorageMeasuredAt = parsed.repositoryStorageMeasuredAt ?? null
     return parsed
   } catch {
     return clone(seedState)
@@ -364,7 +366,7 @@ function mapSnapshot(snapshot: Record<string, unknown>): BackupSnapshot {
   }
 }
 
-function mapState(payload: { projects: Array<Record<string, unknown>>; activities: Array<Record<string, unknown>> }): RegistryState {
+function mapState(payload: { projects: Array<Record<string, unknown>>; activities: Array<Record<string, unknown>>; repository_storage_bytes?: unknown; repository_storage_measured_at?: unknown }): RegistryState {
   return {
     projects: payload.projects.map(project => ({
       id: String(project.id), displayName: String(project.display_name ?? project.id), environment: (project.environment ?? 'production') as Project['environment'],
@@ -385,6 +387,8 @@ function mapState(payload: { projects: Array<Record<string, unknown>>; activitie
       id: String(activity.id), projectId: String(activity.project_id), type: activity.type as ActivityItem['type'], status: activity.status as ActivityItem['status'],
       occurredAt: String(activity.occurred_at), durationMs: activity.duration_ms === null ? null : Number(activity.duration_ms), bytes: activity.bytes === null ? null : Number(activity.bytes), message: String(activity.message),
     })),
+    repositoryStorageBytes: payload.repository_storage_bytes === null || payload.repository_storage_bytes === undefined ? null : Number(payload.repository_storage_bytes),
+    repositoryStorageMeasuredAt: payload.repository_storage_measured_at ? String(payload.repository_storage_measured_at) : null,
   }
 }
 

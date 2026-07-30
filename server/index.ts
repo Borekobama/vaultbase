@@ -22,6 +22,7 @@ import { enqueueBackup, getJob, resumeManualJobs } from './manual-jobs.js'
 import { validateManagementCredentials } from './management-sync.js'
 import { type StorageSecret, validateStorageCredentials } from './storage-sync.js'
 import { databaseConnectionError, isDatabaseRouteUnavailable, validateDatabaseConnection } from './database-credentials.js'
+import { getRepositoryStorageStats } from './repository-stats.js'
 
 const app = express()
 const sessions = new Map<string, number>()
@@ -128,7 +129,7 @@ app.get('/api/projects', async (_request, response) => {
 })
 
 app.get('/api/state', async (_request, response) => {
-  const [projects, activities] = await Promise.all([
+  const [projects, activities, repositoryStorage] = await Promise.all([
     localPool.query(`SELECT p.id, p.display_name, p.owner_email, p.environment, p.notes, p.project_ref ref, coalesce(p.region,'unknown') region, p.plan, p.enabled, p.backup_mode, p.backup_schedule, p.keep_alive_schedule,
       p.created_at, p.last_backup_at, p.measured_dump_bytes storage_bytes, p.status, p.secret_ref secret_path, true secret_configured,
       EXISTS (SELECT 1 FROM vaultbase.project_secret_refs secret WHERE secret.project_id=p.id AND secret.kind='database_direct') direct_database_secret_configured,
@@ -164,10 +165,13 @@ app.get('/api/state', async (_request, response) => {
       ) drills ON true
       ORDER BY p.created_at DESC`),
     localPool.query(`SELECT id, project_id, snapshot_id, event_type type, status, occurred_at, duration_ms, bytes, message FROM vaultbase.activities ORDER BY occurred_at DESC LIMIT 500`),
+    getRepositoryStorageStats(),
   ])
   response.json({
     projects: projects.rows.map(project => ({ ...project, next_backup_at: nextScheduledRun(project.backup_schedule) })),
     activities: activities.rows,
+    repository_storage_bytes: repositoryStorage.bytes,
+    repository_storage_measured_at: repositoryStorage.measuredAt,
   })
 })
 
