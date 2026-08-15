@@ -13,7 +13,7 @@
 - R2/Restic encrypted repository
 - Authenticated ZIP download stream
 - Isolated PostgreSQL restore drill with checksum, schema, data and `ANALYZE` verification
-- Rolling seven-day retention with an explicit latest-snapshot safeguard and protected labels
+- Rolling seven-recovery-point retention with protected snapshot labels
 - Daily metadata mirror and retention/prune schedules
 - Authenticated React UI with real project, job, activity and download data
 - Secure HttpOnly session flow with CSRF/origin protection

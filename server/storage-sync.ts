@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { config } from './config.js'
 import { runProcess } from './process.js'
@@ -34,8 +34,16 @@ export async function syncStorageObjects(projectId: string, destination: string)
   const env = storageEnvironment(secret)
   await runProcess('rclone', ['sync', 'supabase:', cache, '--fast-list', '--checkers', '8', '--transfers', '4', '--metadata', '--delete-during'], { env })
   await runProcess('rclone', ['copy', cache, destination, '--links', '--metadata'], { env })
-  const listing = await runProcess('rclone', ['lsjson', cache, '--recursive', '--files-only', '--hash'], { env })
-  const objects = JSON.parse(listing.stdout) as unknown[]
-  await writeFile(join(destination, 'manifest.json'), `${JSON.stringify({ generatedAt: new Date().toISOString(), objectCount: objects.length, objects }, null, 2)}\n`, { mode: 0o600 })
-  return { configured: true, objects: objects.length }
+  // Object listings can easily exceed runProcess's bounded stdout capture. Write
+  // the complete JSON to disk so parsing never starts in the middle of an item.
+  const listingPath = join(destination, '..', '.storage-object-listing.json')
+  try {
+    await runProcess('rclone', ['lsjson', cache, '--recursive', '--files-only', '--hash'], { env, stdoutFile: listingPath })
+    const objects = JSON.parse(await readFile(listingPath, 'utf8')) as unknown
+    if (!Array.isArray(objects)) throw new Error('rclone returned an invalid Storage object listing.')
+    await writeFile(join(destination, 'manifest.json'), `${JSON.stringify({ generatedAt: new Date().toISOString(), objectCount: objects.length, objects }, null, 2)}\n`, { mode: 0o600 })
+    return { configured: true, objects: objects.length }
+  } finally {
+    await rm(listingPath, { force: true })
+  }
 }

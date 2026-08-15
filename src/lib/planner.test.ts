@@ -16,6 +16,11 @@ describe('backup frequency planner', () => {
     expect(recommendBackupFrequency('free', 284_000_000).label).toBe('Weekly')
   })
 
+  it('projects storage for seven retained recovery points regardless of schedule', () => {
+    expect(recommendBackupFrequency('pro', 96_000_000).projectedR2Bytes).toBe(96_000_000 * 7)
+    expect(recommendBackupFrequency('free', 284_000_000).projectedR2Bytes).toBe(284_000_000 * 7)
+  })
+
   it('does not invent an Enterprise contract allowance', () => {
     const result = recommendBackupFrequency('enterprise', 100_000_000)
     expect(result.label).toBe('Custom contract')

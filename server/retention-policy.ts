@@ -1,10 +1,9 @@
-export const RETENTION_WINDOW = '7d'
+export const RETAINED_RECOVERY_POINTS = 7
 
 export function retentionArguments(projectId?: string, prune = false) {
   const args = [
     'forget',
-    '--keep-within', RETENTION_WINDOW,
-    '--keep-last', '1',
+    '--keep-last', String(RETAINED_RECOVERY_POINTS),
     '--keep-tag', 'protected',
     '--group-by', 'tags',
   ]

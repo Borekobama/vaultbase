@@ -2,11 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { planCatalogReconciliation, retentionArguments, snapshotIdIsPresent, snapshotsMissingFromRepository } from './retention-policy'
 
 describe('backup retention policy', () => {
-  it('uses a rolling seven-day window and always keeps the latest snapshot', () => {
+  it('keeps the latest seven successful recovery points', () => {
     expect(retentionArguments()).toEqual([
       'forget',
-      '--keep-within', '7d',
-      '--keep-last', '1',
+      '--keep-last', '7',
       '--keep-tag', 'protected',
       '--group-by', 'tags',
     ])
@@ -15,8 +14,7 @@ describe('backup retention policy', () => {
   it('adds project filtering and pruning only when requested', () => {
     expect(retentionArguments('customer-prod', true)).toEqual([
       'forget',
-      '--keep-within', '7d',
-      '--keep-last', '1',
+      '--keep-last', '7',
       '--keep-tag', 'protected',
       '--group-by', 'tags',
       '--tag', 'project:customer-prod',

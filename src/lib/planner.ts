@@ -7,7 +7,7 @@ export const PLAN_EGRESS_GB: Record<Exclude<SupabasePlan, 'enterprise'>, number>
 }
 
 export const BACKUP_BUDGET_RATIO = 0.6
-export const RETENTION_DAYS = 7
+export const RETAINED_RECOVERY_POINTS = 7
 
 const schedules = [
   { hours: 1, label: 'Hourly' },
@@ -48,8 +48,7 @@ export function recommendBackupFrequency(plan: SupabasePlan, dumpBytes: number):
   const schedule = selected ?? schedules[schedules.length - 1]
   const backupsPerMonth = MONTH_HOURS / schedule.hours
   const projectedMonthlyEgressBytes = dumpBytes * backupsPerMonth
-  const retainedSnapshots = Math.ceil((RETENTION_DAYS * 24) / schedule.hours)
-  const projectedR2Bytes = dumpBytes * retainedSnapshots
+  const projectedR2Bytes = dumpBytes * RETAINED_RECOVERY_POINTS
   const warning = selected ? null : 'Even weekly full dumps exceed the conservative backup budget. Exclude data or increase the egress budget.'
 
   return { measured: true, label: schedule.label, intervalHours: schedule.hours, planQuotaBytes, backupBudgetBytes, projectedMonthlyEgressBytes, projectedR2Bytes, backupsPerMonth, warning }
